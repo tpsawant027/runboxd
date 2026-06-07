@@ -219,8 +219,13 @@ func (s *DockerSandbox) Run(ctx context.Context, spec RunSpec) (RunResult, error
 	case res := <-wait.Result:
 		statusCode = res.StatusCode
 		info, inspectErr := s.client.ContainerInspect(context.Background(), resp.ID, client.ContainerInspectOptions{})
-		if inspectErr == nil && info.Container.State != nil && info.Container.State.OOMKilled {
-			return RunResult{Status: StatusOOM, ExitCode: int(statusCode), Duration: time.Since(startedAt)}, nil
+		oomKilled := inspectErr == nil && info.Container.State != nil && info.Container.State.OOMKilled
+		// OOMKilled is unreliable on some kernels/Docker versions. On
+		// the wait.Result path we never send SIGKILL (timeout exits via wait.Error),
+		// network is isolated, and memory is always capped - so exit 137 here means
+		// the kernel OOM-killed the process.
+		if oomKilled || statusCode == 137 {
+			return RunResult{Status: StatusOOM, ExitCode: -1, Duration: time.Since(startedAt)}, nil
 		}
 	}
 	out, err := s.client.ContainerLogs(execCtx, resp.ID, client.ContainerLogsOptions{ShowStdout: true, ShowStderr: true})

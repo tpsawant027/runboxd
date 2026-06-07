@@ -31,3 +31,7 @@ jobs:
 
       - name: Integration tests
         run: make integration
+
+      - name: Kernel OOM log
+        if: always()
+        run: sudo dmesg | grep -i oom || true
