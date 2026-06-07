@@ -1,0 +1,9 @@
+FROM {{.BaseImage}}
+{{- if eq .Type "compiled"}}
+ENV BUILD_CMD={{.BuildCmd | printf "%q"}}
+{{- end}}
+RUN mkdir -p /input /sandbox
+COPY wrapper.sh /wrapper.sh
+RUN chmod +x /wrapper.sh
+ENTRYPOINT ["/wrapper.sh"]
+CMD {{.RunCmdJSON}}
