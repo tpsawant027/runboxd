@@ -32,8 +32,5 @@ jobs:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
-      - name: Build images
-        run: make images
-
       - name: Integration tests
         run: make integration
