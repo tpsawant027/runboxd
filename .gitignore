@@ -1,0 +1,15 @@
+# Binaries
+/runboxd
+/bin/
+*.exe
+
+# Test / coverage
+*.out
+coverage.*
+
+# Local env / editor
+.env
+.env.local
+.DS_Store
+
+.reference/
