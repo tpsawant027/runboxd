@@ -17,6 +17,8 @@ import (
 	"github.com/tpsawant027/runboxd/internal/sandbox"
 )
 
+const reapInterval = 2 * time.Minute
+
 func main() {
 	if err := run(); err != nil {
 		slog.Error("runboxd exited with error", "error", err)
@@ -34,11 +36,17 @@ func run() error {
 
 	pool := api.NewWorkerPool(cfg.WorkerPoolSize, cfg.MaxQueueSize)
 
-	sb, err := sandbox.NewDockerSandbox(cfg.RegistryPath)
+	sb, err := sandbox.NewDockerSandbox(cfg.RegistryPath, logger)
 	if err != nil {
 		return err
 	}
 	defer sb.Close()
+
+	reaperCtx, reaperCancel := context.WithCancel(context.Background())
+	reaperDone := make(chan struct{})
+	go func() { defer close(reaperDone); reapLoop(reaperCtx, sb, logger) }()
+	defer func() { reaperCancel(); <-reaperDone }()
+	sb.ReapOrphans(reaperCtx)
 
 	addr := ":" + cfg.Port
 	srv := &http.Server{
@@ -71,4 +79,17 @@ func run() error {
 	}
 	logger.Info("shutdown complete")
 	return nil
+}
+
+func reapLoop(ctx context.Context, sb *sandbox.DockerSandbox, logger *slog.Logger) {
+	t := time.NewTicker(reapInterval)
+	defer t.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-t.C:
+			sb.ReapOrphans(ctx)
+		}
+	}
 }

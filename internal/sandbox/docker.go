@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
@@ -26,6 +27,11 @@ const (
 	MaxMemoryBytes  = 128 * 1024 * 1024 // 128 MiB
 	DefaultNanoCPUs = 500_000_000       // 0.5 CPU
 	MaxOutputBytes  = 1 * 1024 * 1024   // 1 MiB per stream
+)
+
+const (
+	managedLabel = "runboxd.managed"
+	reapMaxAge   = time.Minute
 )
 
 // limitWriter caps writes at n bytes, silently discarding the rest.
@@ -69,6 +75,7 @@ type langEntry struct {
 type DockerSandbox struct {
 	client *client.Client
 	specs  map[string]langEntry
+	logger *slog.Logger
 }
 
 func (s *DockerSandbox) lookupSpec(lang, version string) (dockerSpec, error) {
@@ -90,7 +97,7 @@ func ensureImage(ctx context.Context, cli *client.Client, image string) error {
 	_, err := cli.ImageInspect(ctx, image)
 	switch {
 	case err == nil:
-		// Present locally — nothing to pull.
+		// Present locally - nothing to pull.
 	case errdefs.IsNotFound(err):
 		// Pull once, draining to EOF so the pull completes before we return.
 		tctx, cancel := context.WithTimeout(ctx, ImagePullTimeout)
@@ -111,7 +118,7 @@ func ensureImage(ctx context.Context, cli *client.Client, image string) error {
 }
 
 // TODO: background-pull many images and gate /readyz instead of blocking.
-func NewDockerSandbox(registryPath string) (*DockerSandbox, error) {
+func NewDockerSandbox(registryPath string, logger *slog.Logger) (*DockerSandbox, error) {
 	cli, err := client.New(client.FromEnv)
 	if err != nil {
 		return nil, err
@@ -161,7 +168,7 @@ func NewDockerSandbox(registryPath string) (*DockerSandbox, error) {
 		return nil, err
 	}
 	ok = true
-	return &DockerSandbox{client: cli, specs: specs}, nil
+	return &DockerSandbox{client: cli, specs: specs, logger: logger}, nil
 }
 
 func (s *DockerSandbox) Run(ctx context.Context, spec RunSpec) (RunResult, error) {
@@ -190,7 +197,9 @@ func (s *DockerSandbox) Run(ctx context.Context, spec RunSpec) (RunResult, error
 		User:       "65534", // nobody
 		Tty:        false,
 		WorkingDir: sandboxDir,
+		Labels:     map[string]string{managedLabel: "1"},
 	}
+
 	if spec.Stdin != "" {
 		cfg.AttachStdin = true
 		cfg.OpenStdin = true
@@ -198,7 +207,15 @@ func (s *DockerSandbox) Run(ctx context.Context, spec RunSpec) (RunResult, error
 	}
 	hostCfg := getHostConfig(spec, tmpDir)
 
-	resp, err := s.client.ContainerCreate(ctx, client.ContainerCreateOptions{
+	// Detach the create call from the request ctx: if the client disconnects mid-ContainerCreate,
+	// the request ctx cancels, the client call returns an error WITHOUT the container ID, and the
+	// daemon-side container (already created) is orphaned because the cleanup defer below never registers.
+	// WithoutCancel keeps request values but drops its cancellation/deadline; WithTimeout still bounds it.
+	// We instead check ctx.Err() after create returns to honor request cancellation/timeout (the defer cleans up).
+	createCtx, createCancel := context.WithTimeout(context.WithoutCancel(ctx), 30*time.Second)
+	defer createCancel()
+
+	resp, err := s.client.ContainerCreate(createCtx, client.ContainerCreateOptions{
 		Config:     cfg,
 		HostConfig: hostCfg,
 		Image:      ds.image,
@@ -210,8 +227,15 @@ func (s *DockerSandbox) Run(ctx context.Context, spec RunSpec) (RunResult, error
 	defer func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
-		s.client.ContainerRemove(ctx, resp.ID, client.ContainerRemoveOptions{Force: true})
+		if _, err := s.client.ContainerRemove(ctx, resp.ID, client.ContainerRemoveOptions{Force: true}); err != nil {
+			s.logger.Warn("failed to remove container", "id", resp.ID, "err", err)
+		}
 	}()
+
+	if ctx.Err() != nil {
+		return runResInternalErr, fmt.Errorf("request context error before start: %w", ctx.Err())
+	}
+
 	// Attach stdin-only before start (output comes from the logs, so this conn
 	// can't deadlock on unread output).
 	var attach client.ContainerAttachResult
@@ -312,6 +336,36 @@ func (s *DockerSandbox) Info(ctx context.Context) (SandboxInfo, error) {
 		})
 	}
 	return SandboxInfo{Languages: langs}, nil
+}
+
+func (s *DockerSandbox) ReapOrphans(ctx context.Context) {
+	s.reapOrphans(ctx, reapMaxAge)
+}
+
+func (s *DockerSandbox) reapOrphans(ctx context.Context, maxAge time.Duration) {
+	res, err := s.client.ContainerList(ctx, client.ContainerListOptions{
+		All:     true,
+		Filters: client.Filters{}.Add("label", managedLabel),
+	})
+	if err != nil {
+		s.logger.Warn("reaper: list failed", "err", err)
+		return
+	}
+	now := time.Now()
+	for _, c := range res.Items {
+		if !isOrphan(c.Created, now, maxAge) {
+			continue
+		}
+		rmCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+		if _, err := s.client.ContainerRemove(rmCtx, c.ID, client.ContainerRemoveOptions{Force: true}); err != nil {
+			s.logger.Warn("reaper: remove failed", "id", c.ID, "err", err)
+		}
+		cancel()
+	}
+}
+
+func isOrphan(created int64, now time.Time, maxAge time.Duration) bool {
+	return created <= now.Add(-maxAge).Unix()
 }
 
 func getHostConfig(spec RunSpec, inputSrc string) *container.HostConfig {

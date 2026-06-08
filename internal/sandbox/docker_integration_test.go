@@ -5,12 +5,16 @@ package sandbox
 import (
 	"context"
 	"fmt"
+	"io"
+	"log/slog"
 	"os"
 	"strings"
 	"sync"
 	"testing"
 	"time"
 
+	"github.com/containerd/errdefs"
+	"github.com/moby/moby/api/types/container"
 	"github.com/moby/moby/client"
 )
 
@@ -22,7 +26,7 @@ func newTestSandbox(t *testing.T) *DockerSandbox {
 	if registryPath == "" {
 		registryPath = "../../language_registry.yml"
 	}
-	sb, err := NewDockerSandbox(registryPath)
+	sb, err := NewDockerSandbox(registryPath, slog.New(slog.NewTextHandler(io.Discard, nil)))
 	if err != nil {
 		t.Skip("docker unavailable:", err)
 	}
@@ -323,4 +327,91 @@ func TestRunConcurrency(t *testing.T) {
 		})
 	}
 	wg.Wait()
+}
+
+func anyImage(t *testing.T, sb *DockerSandbox) string {
+	t.Helper()
+	for _, entry := range sb.specs {
+		if spec, ok := entry.versions[entry.defaultVersion]; ok {
+			return spec.image
+		}
+	}
+	t.Fatal("no image in registry")
+	return ""
+}
+
+func waitForManagedContainer(ctx context.Context, t *testing.T, sb *DockerSandbox) {
+	t.Helper()
+	deadline := time.Now().Add(10 * time.Second)
+	for time.Now().Before(deadline) {
+		res, err := sb.client.ContainerList(ctx, client.ContainerListOptions{
+			All:     true,
+			Filters: client.Filters{}.Add("label", managedLabel),
+		})
+		if err == nil && len(res.Items) > 0 {
+			return
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	t.Fatal("no managed container appeared for the in-flight run")
+}
+
+func TestReapOrphansRemovesOrphan(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
+	defer cancel()
+	sb := newTestSandbox(t)
+
+	resp, err := sb.client.ContainerCreate(ctx, client.ContainerCreateOptions{
+		Config: &container.Config{Labels: map[string]string{managedLabel: "1"}},
+		Image:  anyImage(t, sb),
+	})
+	if err != nil {
+		t.Fatalf("create orphan: %v", err)
+	}
+	// Safety net if the reap below fails to remove it.
+	t.Cleanup(func() {
+		sb.client.ContainerRemove(context.Background(), resp.ID, client.ContainerRemoveOptions{Force: true})
+	})
+
+	sb.reapOrphans(ctx, 0)
+
+	if _, err := sb.client.ContainerInspect(ctx, resp.ID, client.ContainerInspectOptions{}); err == nil {
+		t.Fatal("orphan still present after reap")
+	} else if !errdefs.IsNotFound(err) {
+		t.Fatalf("inspect after reap: want not-found, got %v", err)
+	}
+}
+
+func TestReapOrphansSparesLive(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
+	defer cancel()
+	sb := newTestSandbox(t)
+
+	resultCh := make(chan RunResult, 1)
+	errCh := make(chan error, 1)
+	go func() {
+		res, err := sb.Run(ctx, RunSpec{
+			Language: "python",
+			Code:     "import time; time.sleep(3)\n",
+		})
+		if err != nil {
+			errCh <- err
+			return
+		}
+		resultCh <- res
+	}()
+
+	waitForManagedContainer(ctx, t, sb)
+	sb.ReapOrphans(ctx) // real reapMaxAge (1m): the seconds-old live container is spared
+
+	select {
+	case res := <-resultCh:
+		if res.Status != StatusOK || res.ExitCode != 0 {
+			t.Fatalf("live run was disrupted by the reaper: status=%q exit=%d", res.Status, res.ExitCode)
+		}
+	case err := <-errCh:
+		t.Fatalf("live run errored (reaper killed it?): %v", err)
+	case <-ctx.Done():
+		t.Fatal("timed out waiting for the live run to finish")
+	}
 }

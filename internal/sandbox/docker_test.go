@@ -3,6 +3,7 @@ package sandbox
 import (
 	"errors"
 	"testing"
+	"time"
 )
 
 func TestStatusForExit(t *testing.T) {
@@ -104,5 +105,29 @@ func TestLookupSpecUnsupportedLanguage(t *testing.T) {
 	}
 	if !errors.Is(err, ErrUnsupportedLanguage) {
 		t.Fatalf("expected ErrUnsupportedLanguage, got %v", err)
+	}
+}
+
+func TestIsOrphan(t *testing.T) {
+	now := time.Unix(1_000_000, 0)
+	const maxAge = time.Minute
+	tests := []struct {
+		name    string
+		created int64
+		maxAge  time.Duration
+		want    bool
+	}{
+		{"young is not orphan", now.Unix(), maxAge, false},
+		{"older than maxAge is orphan", now.Add(-2 * time.Minute).Unix(), maxAge, true},
+		{"exactly at cutoff is orphan", now.Add(-maxAge).Unix(), maxAge, true},
+		{"one second inside cutoff is not orphan", now.Add(-maxAge).Unix() + 1, maxAge, false},
+		{"maxAge zero treats everything as orphan", now.Unix(), 0, true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := isOrphan(tt.created, now, tt.maxAge); got != tt.want {
+				t.Errorf("isOrphan(%d, now, %v) = %v, want %v", tt.created, tt.maxAge, got, tt.want)
+			}
+		})
 	}
 }
