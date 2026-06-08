@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/tpsawant027/runboxd/internal/api"
+	"github.com/tpsawant027/runboxd/internal/config"
 	"github.com/tpsawant027/runboxd/internal/sandbox"
 )
 
@@ -29,18 +30,15 @@ func run() error {
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGTERM, syscall.SIGINT)
 	defer stop()
 
-	registryPath := os.Getenv("REGISTRY_PATH")
-	if registryPath == "" {
-		registryPath = "./language_registry.yml"
-	}
+	cfg := config.Load()
 
-	sb, err := sandbox.NewDockerSandbox(registryPath)
+	sb, err := sandbox.NewDockerSandbox(cfg.RegistryPath)
 	if err != nil {
 		return err
 	}
 	defer sb.Close()
 
-	addr := ":8080" // TODO: env-driven config as a cross-cutting concern (S4).
+	addr := ":" + cfg.Port
 	srv := &http.Server{
 		Addr:              addr,
 		Handler:           api.NewServer(logger, sb).Routes(),
