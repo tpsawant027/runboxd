@@ -32,6 +32,8 @@ func run() error {
 
 	cfg := config.Load()
 
+	pool := api.NewWorkerPool(cfg.WorkerPoolSize, cfg.MaxQueueSize)
+
 	sb, err := sandbox.NewDockerSandbox(cfg.RegistryPath)
 	if err != nil {
 		return err
@@ -41,7 +43,7 @@ func run() error {
 	addr := ":" + cfg.Port
 	srv := &http.Server{
 		Addr:              addr,
-		Handler:           api.NewServer(logger, sb).Routes(),
+		Handler:           api.NewServer(logger, sb, pool).Routes(),
 		ReadHeaderTimeout: 5 * time.Second,
 		IdleTimeout:       120 * time.Second,
 	}
@@ -61,7 +63,6 @@ func run() error {
 		logger.Info("shutdown signal received")
 	}
 
-	// S4: drain in-flight jobs from the worker pool before exiting.
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
 	defer cancel()
 	if err := srv.Shutdown(shutdownCtx); err != nil {

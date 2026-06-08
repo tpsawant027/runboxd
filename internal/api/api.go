@@ -21,10 +21,11 @@ import (
 type Server struct {
 	logger  *slog.Logger
 	sandbox sandbox.Sandbox
+	pool    *WorkerPool
 }
 
-func NewServer(logger *slog.Logger, sb sandbox.Sandbox) *Server {
-	return &Server{logger: logger, sandbox: sb}
+func NewServer(logger *slog.Logger, sb sandbox.Sandbox, pool *WorkerPool) *Server {
+	return &Server{logger: logger, sandbox: sb, pool: pool}
 }
 
 func (s *Server) Routes() http.Handler {
@@ -39,7 +40,7 @@ func (s *Server) Routes() http.Handler {
 	r.Get("/healthz", handle(s.handleHealthz))
 	r.Get("/readyz", handle(s.handleReadyz))
 	r.Get("/info", handle(s.handleInfo))
-	r.Post("/execute", handle(s.handleExecute))
+	r.With(s.pool.Middleware()).Post("/execute", handle(s.handleExecute))
 	return r
 }
 
@@ -81,9 +82,6 @@ func (s *Server) handleInfo(w http.ResponseWriter, r *http.Request) error {
 	return nil
 }
 
-// handleExecute decodes a request, runs it through the Sandbox, and returns a
-// structured result.
-// TODO: submit s.sandbox.Run via the bounded worker pool so concurrent requests are queued, not run unbounded.
 func (s *Server) handleExecute(w http.ResponseWriter, r *http.Request) error {
 	var req ExecuteRequest
 	if err := readBody(w, r, &req); err != nil {
