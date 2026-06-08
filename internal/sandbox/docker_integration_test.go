@@ -5,20 +5,24 @@ package sandbox
 import (
 	"context"
 	"fmt"
+	"os"
 	"strings"
 	"sync"
 	"testing"
 	"time"
 
 	"github.com/moby/moby/client"
-	"github.com/tpsawant027/runboxd/internal/language"
 )
 
 const testTimeout = 30 * time.Second
 
 func newTestSandbox(t *testing.T) *DockerSandbox {
 	t.Helper()
-	sb, err := NewDockerSandbox()
+	registryPath := os.Getenv("REGISTRY_PATH")
+	if registryPath == "" {
+		registryPath = "../../language_registry.yml"
+	}
+	sb, err := NewDockerSandbox(registryPath)
 	if err != nil {
 		t.Skip("docker unavailable:", err)
 	}
@@ -59,7 +63,7 @@ func TestRun(t *testing.T) {
 		{
 			name: "python",
 			runSpec: RunSpec{
-				Language: language.Python,
+				Language: "python",
 				Code:     "print(1+1)\n",
 			},
 			wantRunResult: RunResult{
@@ -94,7 +98,7 @@ func TestRunStdin(t *testing.T) {
 		{
 			name: "python",
 			runSpec: RunSpec{
-				Language: language.Python,
+				Language: "python",
 				Code:     "print(input())\n",
 				Stdin:    "hello\n",
 			},
@@ -131,7 +135,7 @@ func TestRunRuntimeError(t *testing.T) {
 		{
 			name: "python",
 			runSpec: RunSpec{
-				Language: language.Python,
+				Language: "python",
 				Code:     "raise Exception('oops')\n",
 			},
 			wantRunResult: RunResult{
@@ -167,7 +171,7 @@ func TestRunTimeout(t *testing.T) {
 		{
 			name: "python",
 			runSpec: RunSpec{
-				Language: language.Python,
+				Language: "python",
 				Code:     "import time; time.sleep(60)\n",
 				Timeout:  5 * time.Second,
 			},
@@ -211,7 +215,7 @@ func TestRunOOM(t *testing.T) {
 		{
 			name: "python",
 			runSpec: RunSpec{
-				Language:    language.Python,
+				Language:    "python",
 				MemoryBytes: 32 << 20, // 32 MiB
 				Timeout:     30 * time.Second,
 				Code:        "import os; os.urandom(2 << 30)\n",
@@ -247,7 +251,7 @@ func TestRunFilesystem(t *testing.T) {
 		{
 			name: "write_and_read_in_workspace",
 			runSpec: RunSpec{
-				Language: language.Python,
+				Language: "python",
 				Code: `
 with open("out.txt", "w") as f:
     f.write("hello")
@@ -264,7 +268,7 @@ with open("out.txt") as f:
 		{
 			name: "write_outside_sandbox_denied",
 			runSpec: RunSpec{
-				Language: language.Python,
+				Language: "python",
 				Code: `
 try:
     open("/oops.txt", "w")
@@ -303,7 +307,7 @@ func TestRunConcurrency(t *testing.T) {
 	for n := range numRuns {
 		wg.Go(func() {
 			got, err := sb.Run(ctx, RunSpec{
-				Language: language.Python,
+				Language: "python",
 				Code:     fmt.Sprintf("print('run %d')\n", n),
 			})
 			if err != nil {

@@ -29,7 +29,12 @@ func run() error {
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGTERM, syscall.SIGINT)
 	defer stop()
 
-	sb, err := sandbox.NewDockerSandbox()
+	registryPath := os.Getenv("REGISTRY_PATH")
+	if registryPath == "" {
+		registryPath = "./language_registry.yml"
+	}
+
+	sb, err := sandbox.NewDockerSandbox(registryPath)
 	if err != nil {
 		return err
 	}

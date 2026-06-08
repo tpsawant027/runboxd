@@ -1,10 +1,13 @@
 package api
 
-import "github.com/tpsawant027/runboxd/internal/language"
+import (
+	"github.com/tpsawant027/runboxd/internal/sandbox"
+)
 
 // ExecuteRequest represents the JSON body of a code execution request.
 type ExecuteRequest struct {
 	Language       string `json:"language"`
+	Version        string `json:"version,omitempty"`
 	Code           string `json:"code"`
 	Stdin          string `json:"stdin,omitempty"`
 	TimeoutSeconds int64  `json:"timeout_seconds,omitempty"`
@@ -22,5 +25,5 @@ type ExecuteResponse struct {
 
 // InfoResponse represents the JSON body of an info response.
 type InfoResponse struct {
-	Languages []language.Language `json:"languages"`
+	Languages []sandbox.LanguageInfo `json:"languages"`
 }

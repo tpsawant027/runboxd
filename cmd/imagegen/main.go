@@ -11,6 +11,7 @@ import (
 	"text/template"
 
 	"github.com/tpsawant027/runboxd/internal/imagespec"
+	"github.com/tpsawant027/runboxd/internal/registry"
 	"go.yaml.in/yaml/v4"
 )
 
@@ -19,29 +20,6 @@ type dockerfileData struct {
 	BuildCmd   string
 	RunCmdJSON string
 	Type       string
-}
-
-type LanguageRegistry struct {
-	Languages map[string]LanguageEntry `yaml:"languages"`
-}
-
-type LanguageEntry struct {
-	Name           string                  `yaml:"name"`
-	Type           string                  `yaml:"type"`
-	Filename       string                  `yaml:"filename"`
-	DefaultVersion string                  `yaml:"default_version"`
-	Versions       map[string]VersionEntry `yaml:"versions"`
-	Artifact       Artifact                `yaml:"artifact"`
-}
-
-type VersionEntry struct {
-	Name  string `yaml:"name"`
-	Image string `yaml:"image"`
-}
-
-type Artifact struct {
-	Name             string `yaml:"name"`
-	ExecutionCommand string `yaml:"execution_command"`
 }
 
 const versionEntryImageNamePrefix = "runboxd-"
@@ -82,7 +60,7 @@ func main() {
 		log.Fatalf("failed to load image specs: %v", err)
 	}
 
-	languageRegistry := LanguageRegistry{Languages: make(map[string]LanguageEntry)}
+	languageRegistry := registry.Registry{Languages: make(map[string]registry.Language)}
 
 	for _, entry := range entries {
 		wrapperContent, err := os.ReadFile(filepath.Join(entry.Dir, imagespec.WrapperFilename))
@@ -95,13 +73,13 @@ func main() {
 			log.Fatalf("%s: exec_cmd is required in the image spec", entry.Spec.Name)
 		}
 
-		languageRegistry.Languages[entry.Spec.Name] = LanguageEntry{
+		languageRegistry.Languages[entry.Spec.Name] = registry.Language{
 			Name:           entry.Spec.Name,
 			Type:           entry.Spec.Type,
 			Filename:       entry.Spec.Filename,
 			DefaultVersion: entry.Spec.DefaultVersion,
-			Versions:       make(map[string]VersionEntry),
-			Artifact: Artifact{
+			Versions:       make(map[string]registry.Version),
+			Artifact: registry.Artifact{
 				Name:             entry.Spec.Filename,
 				ExecutionCommand: entry.Spec.ExecCmd,
 			},
@@ -120,7 +98,7 @@ func main() {
 				version.BaseImage = baseTag + "@" + digest
 			}
 			createDockerfile(entry.Dir, entry.Spec.Name, versionName, force, version, entry.Spec, tmpl, wrapperContent)
-			languageRegistry.Languages[entry.Spec.Name].Versions[versionName] = VersionEntry{
+			languageRegistry.Languages[entry.Spec.Name].Versions[versionName] = registry.Version{
 				Name:  versionName,
 				Image: versionEntryImageNamePrefix + entry.Spec.Name + ":" + versionName,
 			}

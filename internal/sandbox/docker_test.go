@@ -1,6 +1,9 @@
 package sandbox
 
-import "testing"
+import (
+	"errors"
+	"testing"
+)
 
 func TestStatusForExit(t *testing.T) {
 	tests := []struct {
@@ -94,12 +97,12 @@ func TestLimitWriter(t *testing.T) {
 }
 
 func TestLookupSpecUnsupportedLanguage(t *testing.T) {
-	_, err := lookupSpec("unsupported-language")
+	sb := &DockerSandbox{specs: map[string]langEntry{}}
+	_, err := sb.lookupSpec("unsupported-language", "")
 	if err == nil {
 		t.Fatal("expected error for unsupported language, got nil")
 	}
-	expectedErrMsg := "unsupported language"
-	if err.Error() != expectedErrMsg {
-		t.Fatalf("expected error message %q, got %q", expectedErrMsg, err.Error())
+	if !errors.Is(err, ErrUnsupportedLanguage) {
+		t.Fatalf("expected ErrUnsupportedLanguage, got %v", err)
 	}
 }

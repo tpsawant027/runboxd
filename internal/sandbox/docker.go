@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/containerd/errdefs"
@@ -16,7 +17,8 @@ import (
 	"github.com/moby/moby/api/types/container"
 	"github.com/moby/moby/api/types/mount"
 	"github.com/moby/moby/client"
-	"github.com/tpsawant027/runboxd/internal/language"
+	"github.com/tpsawant027/runboxd/internal/registry"
+	"golang.org/x/sync/errgroup"
 )
 
 const (
@@ -49,44 +51,51 @@ const (
 
 type dockerSpec struct {
 	filename string
-	cmd      []string
 	image    string
-}
-
-var registry = map[language.Language]dockerSpec{
-	language.Python: {
-		filename: "main.py",
-		cmd:      []string{"python", "/sandbox/main.py"},
-		image:    "runboxd-python:latest",
-	},
-}
-
-var ErrUnsupportedLanguage = errors.New("unsupported language")
-
-func lookupSpec(lang language.Language) (dockerSpec, error) {
-	spec, ok := registry[lang]
-	if !ok {
-		return dockerSpec{}, ErrUnsupportedLanguage
-	}
-	return spec, nil
 }
 
 const ImagePullTimeout = 2 * time.Minute
 
-type DockerSandbox struct {
-	client *client.Client
+var (
+	ErrUnsupportedLanguage = errors.New("unsupported language")
+	ErrUnsupportedVersion  = errors.New("unsupported version")
+)
+
+type langEntry struct {
+	defaultVersion string
+	versions       map[string]dockerSpec
 }
 
-func ensureImage(cli *client.Client, image string) error {
-	_, err := cli.ImageInspect(context.Background(), image)
+type DockerSandbox struct {
+	client *client.Client
+	specs  map[string]langEntry
+}
+
+func (s *DockerSandbox) lookupSpec(lang, version string) (dockerSpec, error) {
+	entry, ok := s.specs[lang]
+	if !ok {
+		return dockerSpec{}, ErrUnsupportedLanguage
+	}
+	if version == "" {
+		version = entry.defaultVersion
+	}
+	spec, ok := entry.versions[version]
+	if !ok {
+		return dockerSpec{}, ErrUnsupportedVersion
+	}
+	return spec, nil
+}
+
+func ensureImage(ctx context.Context, cli *client.Client, image string) error {
+	_, err := cli.ImageInspect(ctx, image)
 	switch {
 	case err == nil:
 		// Present locally — nothing to pull.
 	case errdefs.IsNotFound(err):
 		// Pull once, draining to EOF so the pull completes before we return.
-		ctx, cancel := context.WithTimeout(context.Background(), ImagePullTimeout)
+		tctx, cancel := context.WithTimeout(ctx, ImagePullTimeout)
 		defer cancel()
-		reader, err := cli.ImagePull(ctx, image, client.ImagePullOptions{})
+		reader, err := cli.ImagePull(tctx, image, client.ImagePullOptions{})
 		if err != nil {
 			return fmt.Errorf("image %q not available locally and pull failed (run 'make images'?): %w", image, err)
 		}
@@ -102,7 +111,7 @@ func ensureImage(cli *client.Client, image string) error {
 }
 
 // TODO: background-pull many images and gate /readyz instead of blocking.
-func NewDockerSandbox() (*DockerSandbox, error) {
+func NewDockerSandbox(registryPath string) (*DockerSandbox, error) {
 	cli, err := client.New(client.FromEnv)
 	if err != nil {
 		return nil, err
@@ -113,17 +122,50 @@ func NewDockerSandbox() (*DockerSandbox, error) {
 			_ = cli.Close()
 		}
 	}()
-	for _, spec := range registry {
-		if err := ensureImage(cli, spec.image); err != nil {
-			return nil, fmt.Errorf("failed to ensure image availability for %q: %w", spec.image, err)
-		}
+	registry, err := registry.Load(registryPath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to load registry: %w", err)
+	}
+
+	specs := make(map[string]langEntry, len(registry.Languages))
+
+	g, gctx := errgroup.WithContext(context.Background())
+	var mu sync.Mutex
+
+	for _, entry := range registry.Languages {
+		g.Go(func() error {
+			defaultVersion, ok := entry.Versions[entry.DefaultVersion]
+			if !ok {
+				return fmt.Errorf("default version %q not found for language %q", entry.DefaultVersion, entry.Name)
+			}
+			spec := langEntry{
+				defaultVersion: defaultVersion.Name,
+				versions:       make(map[string]dockerSpec, len(entry.Versions)),
+			}
+			for _, version := range entry.Versions {
+				spec.versions[version.Name] = dockerSpec{
+					filename: entry.Filename,
+					image:    version.Image,
+				}
+				if err := ensureImage(gctx, cli, version.Image); err != nil {
+					return fmt.Errorf("failed to ensure image %q for language %q version %q: %w", version.Image, entry.Name, version.Name, err)
+				}
+			}
+			mu.Lock()
+			specs[entry.Name] = spec
+			mu.Unlock()
+			return nil
+		})
+	}
+	if err := g.Wait(); err != nil {
+		return nil, err
 	}
 	ok = true
-	return &DockerSandbox{client: cli}, nil
+	return &DockerSandbox{client: cli, specs: specs}, nil
 }
 
 func (s *DockerSandbox) Run(ctx context.Context, spec RunSpec) (RunResult, error) {
-	ds, err := lookupSpec(spec.Language)
+	ds, err := s.lookupSpec(spec.Language, spec.Version)
 	if err != nil {
 		return RunResult{}, err
 	}
@@ -146,7 +188,6 @@ func (s *DockerSandbox) Run(ctx context.Context, spec RunSpec) (RunResult, error
 
 	cfg := &container.Config{
 		User:       "65534", // nobody
-		Cmd:        ds.cmd,
 		Tty:        false,
 		WorkingDir: sandboxDir,
 	}
@@ -258,9 +299,17 @@ func (s *DockerSandbox) Ping(ctx context.Context) error {
 }
 
 func (s *DockerSandbox) Info(ctx context.Context) (SandboxInfo, error) {
-	langs := make([]language.Language, 0, len(registry))
-	for lang := range registry {
-		langs = append(langs, lang)
+	langs := make([]LanguageInfo, 0, len(s.specs))
+	for name, entry := range s.specs {
+		versions := make([]string, 0, len(entry.versions))
+		for version := range entry.versions {
+			versions = append(versions, version)
+		}
+		langs = append(langs, LanguageInfo{
+			Name:           name,
+			DefaultVersion: entry.defaultVersion,
+			Versions:       versions,
+		})
 	}
 	return SandboxInfo{Languages: langs}, nil
 }

@@ -4,8 +4,6 @@ package sandbox
 import (
 	"context"
 	"time"
-
-	"github.com/tpsawant027/runboxd/internal/language"
 )
 
 // Status classifies the outcome of an execution.
@@ -21,7 +19,8 @@ const (
 
 // RunSpec is a single execution request handed to a Sandbox.
 type RunSpec struct {
-	Language    language.Language
+	Language    string
+	Version     string
 	Code        string
 	Stdin       string
 	Timeout     time.Duration
@@ -37,8 +36,14 @@ type RunResult struct {
 	Duration time.Duration
 }
 
+type LanguageInfo struct {
+	Name           string
+	DefaultVersion string
+	Versions       []string
+}
+
 type SandboxInfo struct {
-	Languages []language.Language
+	Languages []LanguageInfo
 }
 
 // Sandbox isolates and runs untrusted code.

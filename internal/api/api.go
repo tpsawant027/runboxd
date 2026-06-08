@@ -15,7 +15,6 @@ import (
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/go-chi/httplog/v3"
 
-	"github.com/tpsawant027/runboxd/internal/language"
 	"github.com/tpsawant027/runboxd/internal/sandbox"
 )
 
@@ -70,7 +69,7 @@ func (s *Server) handleReadyz(w http.ResponseWriter, r *http.Request) error {
 }
 
 func (s *Server) handleInfo(w http.ResponseWriter, r *http.Request) error {
-	resp := InfoResponse{Languages: []language.Language{}}
+	resp := InfoResponse{Languages: []sandbox.LanguageInfo{}}
 	if i, ok := s.sandbox.(sandbox.Informer); ok {
 		info, err := i.Info(r.Context())
 		if err != nil {
@@ -97,7 +96,8 @@ func (s *Server) handleExecute(w http.ResponseWriter, r *http.Request) error {
 
 	start := time.Now()
 	result, err := s.sandbox.Run(r.Context(), sandbox.RunSpec{
-		Language:    language.Language(req.Language),
+		Language:    req.Language,
+		Version:     req.Version,
 		Code:        req.Code,
 		Stdin:       req.Stdin,
 		Timeout:     time.Duration(req.TimeoutSeconds) * time.Second,
@@ -127,6 +127,7 @@ func validateExecuteRequest(req *ExecuteRequest) error {
 	if req.Language == "" {
 		return badRequest("language is required")
 	}
+	req.Version = strings.TrimSpace(req.Version)
 	if req.Code == "" {
 		return badRequest("code is required")
 	}
@@ -142,6 +143,9 @@ func validateExecuteRequest(req *ExecuteRequest) error {
 func mapRunError(err error) *apiError {
 	if errors.Is(err, sandbox.ErrUnsupportedLanguage) {
 		return badRequest("unsupported language")
+	}
+	if errors.Is(err, sandbox.ErrUnsupportedVersion) {
+		return badRequest("unsupported version")
 	}
 	return internalError("execution failed").wrap(err)
 }
