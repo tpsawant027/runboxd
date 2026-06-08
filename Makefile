@@ -13,12 +13,7 @@ gen-lock:
 gen-images:
 	go run ./cmd/imagegen -dir ./images -lockfile ./images.lock.yml -registry-out ./language_registry.yml
 images: gen-images
-	for dir in images/*/*; do \
-		[ -f "$$dir/Dockerfile" ] || continue; \
-		lang=$$(basename $$(dirname $$dir)); \
-		version=$$(basename $$dir); \
-		docker build -t runboxd-$$lang:$$version $$dir; \
-	done
+	go run ./cmd/buildimages -dir ./images -registry ./language_registry.yml
 integration: images
 	go test -tags=integration -race ./...
 lint:
