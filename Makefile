@@ -4,13 +4,20 @@ BINARY=bin/runboxd
 LOAD_RATES ?= 5 8 20 50
 LOAD_DURATION ?= 15s
 
-.PHONY: build run test integration load lint clean gen-lock gen-images images
+COVER_PROFILE ?= cover.out
+
+.PHONY: build run test cover integration load lint clean gen-lock gen-images images
 build:
 	go build -o $(BINARY) ./cmd/runboxd
 run: build
 	./$(BINARY)
 test:
 	go test ./...
+# For coverage of the Docker-dependent Run path, add the integration tag: make cover GOFLAGS=-tags=integration
+cover:
+	go test $(GOFLAGS) -covermode=atomic -coverprofile=$(COVER_PROFILE) ./...
+	go tool cover -func=$(COVER_PROFILE)
+	go tool cover -html=$(COVER_PROFILE) -o $(COVER_PROFILE:.out=.html)
 gen-lock:
 	go run ./cmd/genlock -dir ./images -out ./images.lock.yml
 gen-images:
@@ -32,3 +39,4 @@ lint:
 	go vet ./...
 clean:
 	rm -rf bin/
+	rm -f $(COVER_PROFILE) $(COVER_PROFILE:.out=.html)
