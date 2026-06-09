@@ -300,6 +300,37 @@ except (PermissionError, OSError):
 	}
 }
 
+func TestRunWorkspaceFiles(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
+	defer cancel()
+	sb := newTestSandbox(t)
+
+	rs := RunSpec{
+		Language: "python",
+		Code: `
+with open("data/in.txt") as f:
+    print(f.read())
+`,
+		WorkspaceFiles: []WorkspaceFile{
+			{
+				Path:    "data/in.txt",
+				Content: "hello",
+			},
+		},
+	}
+	want := RunResult{
+		Status:   StatusOK,
+		Stdout:   "hello\n",
+		ExitCode: 0,
+	}
+
+	got, err := sb.Run(ctx, rs)
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	ensureRunResult(t, got, want, "")
+}
+
 func TestRunConcurrency(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
 	defer cancel()

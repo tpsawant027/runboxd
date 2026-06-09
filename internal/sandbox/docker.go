@@ -220,10 +220,7 @@ func (s *DockerSandbox) Run(ctx context.Context, spec RunSpec) (RunResult, error
 	}
 	startedAt := time.Now()
 
-	timeout := ds.limits.MaxTimeout
-	if spec.Timeout > 0 {
-		timeout = max(ds.limits.MinTimeout, min(spec.Timeout, ds.limits.MaxTimeout))
-	}
+	timeout := effectiveTimeout(spec.Timeout, ds.limits)
 	execCtx, execCancel := context.WithTimeout(ctx, timeout)
 	defer execCancel()
 
@@ -480,6 +477,13 @@ func setupWorkspace(tmpDirPattern, code, codeFilename string, workspaceFiles []W
 		return tmpDir, fmt.Errorf("failed to write code file: %w", err)
 	}
 	return tmpDir, nil
+}
+
+func effectiveTimeout(reqTimeout time.Duration, limits LangLimits) time.Duration {
+	if reqTimeout <= 0 {
+		return limits.MaxTimeout
+	}
+	return max(limits.MinTimeout, min(reqTimeout, limits.MaxTimeout))
 }
 
 func getHostConfig(spec RunSpec, ds dockerSpec, inputSrc string) *container.HostConfig {

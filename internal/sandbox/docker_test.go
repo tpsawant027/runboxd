@@ -2,8 +2,12 @@ package sandbox
 
 import (
 	"errors"
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
+
+	"github.com/tpsawant027/runboxd/internal/imagespec"
 )
 
 func TestStatusForExit(t *testing.T) {
@@ -123,11 +127,386 @@ func TestIsOrphan(t *testing.T) {
 		{"one second inside cutoff is not orphan", now.Add(-maxAge).Unix() + 1, maxAge, false},
 		{"maxAge zero treats everything as orphan", now.Unix(), 0, true},
 	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			if got := isOrphan(tt.created, now, tt.maxAge); got != tt.want {
-				t.Errorf("isOrphan(%d, now, %v) = %v, want %v", tt.created, tt.maxAge, got, tt.want)
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := isOrphan(tc.created, now, tc.maxAge); got != tc.want {
+				t.Errorf("isOrphan(%d, now, %v) = %v, want %v", tc.created, tc.maxAge, got, tc.want)
 			}
 		})
 	}
+}
+
+func fillUnsetLangLimits(input LangLimits) LangLimits {
+	input.MinTimeout = valueWithDefault(input.MinTimeout, MinTimeout)
+	input.MaxTimeout = valueWithDefault(input.MaxTimeout, MaxTimeout)
+	input.MinMemoryBytes = valueWithDefault(input.MinMemoryBytes, MinMemoryBytes)
+	input.MaxMemoryBytes = valueWithDefault(input.MaxMemoryBytes, MaxMemoryBytes)
+	input.MaxPids = valueWithDefault(input.MaxPids, MaxPids)
+	return input
+}
+
+func TestResolveLangLimits(t *testing.T) {
+	cases := []struct {
+		name  string
+		input imagespec.Limits
+		want  LangLimits
+	}{
+		{
+			// Anchored against the literal consts (not fillUnsetLangLimits) so a
+			// wrong default or a bug in valueWithDefault can't hide here.
+			name:  "all unset",
+			input: imagespec.Limits{},
+			want: LangLimits{
+				MinTimeout:     MinTimeout,
+				MaxTimeout:     MaxTimeout,
+				MinMemoryBytes: MinMemoryBytes,
+				MaxMemoryBytes: MaxMemoryBytes,
+				MaxPids:        MaxPids,
+			},
+		},
+		{
+			name:  "only max memory set",
+			input: imagespec.Limits{MaxMemoryMiB: 128},
+			want:  fillUnsetLangLimits(LangLimits{MaxMemoryBytes: 128 * 1024 * 1024}),
+		},
+		{
+			name:  "only min timeout set",
+			input: imagespec.Limits{MinTimeoutSeconds: 2},
+			want:  fillUnsetLangLimits(LangLimits{MinTimeout: 2 * time.Second}),
+		},
+		{
+			name:  "low max clamps unset min: memory",
+			input: imagespec.Limits{MaxMemoryMiB: 32},
+			want:  fillUnsetLangLimits(LangLimits{MinMemoryBytes: 32 * 1024 * 1024, MaxMemoryBytes: 32 * 1024 * 1024}),
+		},
+		{
+			name: "explicit min and max",
+			input: imagespec.Limits{
+				MinMemoryMiB: 64,
+				MaxMemoryMiB: 256,
+			},
+			want: fillUnsetLangLimits(LangLimits{MinMemoryBytes: 64 * 1024 * 1024, MaxMemoryBytes: 256 * 1024 * 1024}),
+		},
+		{
+			name:  "low max clamps unset min: timeout",
+			input: imagespec.Limits{MaxTimeoutSeconds: 1},
+			want:  fillUnsetLangLimits(LangLimits{MinTimeout: time.Second, MaxTimeout: time.Second}),
+		},
+		{
+			name:  "only pids set",
+			input: imagespec.Limits{MaxPids: 10},
+			want:  fillUnsetLangLimits(LangLimits{MaxPids: 10}),
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := resolveLangLimits(tc.input)
+			if got != tc.want {
+				t.Errorf("resolveLangLimits(%v) = %v, want %v", tc.input, got, tc.want)
+			}
+		})
+	}
+}
+
+func TestValidateLangLimits(t *testing.T) {
+	validLimits := fillUnsetLangLimits(LangLimits{})
+	cases := []struct {
+		name    string
+		limits  LangLimits
+		wantErr bool
+	}{
+		{
+			name:    "valid limits",
+			limits:  validLimits,
+			wantErr: false,
+		},
+		{
+			name: "negative min timeout",
+			limits: func() LangLimits {
+				l := validLimits
+				l.MinTimeout = -time.Second
+				return l
+			}(),
+			wantErr: true,
+		},
+		{
+			name: "max timeout less than min",
+			limits: func() LangLimits {
+				l := validLimits
+				l.MinTimeout = 2 * time.Second
+				l.MaxTimeout = time.Second
+				return l
+			}(),
+			wantErr: true,
+		},
+		{
+			name: "negative min memory",
+			limits: func() LangLimits {
+				l := validLimits
+				l.MinMemoryBytes = -1024
+				return l
+			}(),
+			wantErr: true,
+		},
+		{
+			name: "max memory less than min",
+			limits: func() LangLimits {
+				l := validLimits
+				l.MinMemoryBytes = 128 * 1024 * 1024
+				l.MaxMemoryBytes = 64 * 1024 * 1024
+				return l
+			}(),
+			wantErr: true,
+		},
+		{
+			name: "negative max pids",
+			limits: func() LangLimits {
+				l := validLimits
+				l.MaxPids = -1
+				return l
+			}(),
+			wantErr: true,
+		},
+		{
+			// Pins the `< 1` boundary: zero must fail. A negative-only case
+			// would still pass if the check were the weaker `< 0`.
+			name: "zero max pids",
+			limits: func() LangLimits {
+				l := validLimits
+				l.MaxPids = 0
+				return l
+			}(),
+			wantErr: true,
+		},
+		{
+			// Regression guard for the operator-trust decision: the package
+			// consts are defaults, not hard bounds. Limits well above the old
+			// global ceiling must validate — if someone reintroduces an
+			// absolute-ceiling envelope check, this fails.
+			name: "above old global ceiling is allowed",
+			limits: func() LangLimits {
+				l := validLimits
+				l.MaxMemoryBytes = 512 * 1024 * 1024
+				l.MaxPids = 1000
+				return l
+			}(),
+			wantErr: false,
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			err := validateLangLimits(tc.limits)
+			if tc.wantErr && err == nil {
+				t.Errorf("validateLangLimits(%v) = nil, want error", tc.limits)
+			} else if !tc.wantErr && err != nil {
+				t.Errorf("validateLangLimits(%v) = %v, want nil", tc.limits, err)
+			}
+		})
+	}
+}
+
+func TestEffectiveTimeout(t *testing.T) {
+	langLimits := fillUnsetLangLimits(LangLimits{MinTimeout: 5 * time.Second, MaxTimeout: 10 * time.Second})
+	cases := []struct {
+		name    string
+		timeout time.Duration
+		want    time.Duration
+	}{
+		{
+			name:    "zero timeout becomes max",
+			timeout: 0,
+			want:    langLimits.MaxTimeout,
+		},
+		{
+			name:    "negative timeout becomes max",
+			timeout: -time.Second,
+			want:    langLimits.MaxTimeout,
+		},
+		{
+			name:    "timeout within limits is unchanged",
+			timeout: langLimits.MinTimeout + time.Second,
+			want:    langLimits.MinTimeout + time.Second,
+		},
+		{
+			name:    "timeout above max is clamped",
+			timeout: langLimits.MaxTimeout + time.Second,
+			want:    langLimits.MaxTimeout,
+		},
+		{
+			name:    "timeout below min is clamped",
+			timeout: langLimits.MinTimeout - time.Second,
+			want:    langLimits.MinTimeout,
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := effectiveTimeout(tc.timeout, langLimits)
+			if got != tc.want {
+				t.Errorf("effectiveTimeout(%v, %+v) = %v, want %v", tc.timeout, langLimits, got, tc.want)
+			}
+		})
+	}
+}
+
+func TestGetHostConfig(t *testing.T) {
+	langLimits := fillUnsetLangLimits(LangLimits{MinMemoryBytes: 64 * 1024 * 1024, MaxMemoryBytes: 256 * 1024 * 1024, MaxPids: 10})
+	cases := []struct {
+		name        string
+		memoryBytes int64
+		wantMemory  int64
+	}{
+		{
+			name:        "zero memory becomes max",
+			memoryBytes: 0,
+			wantMemory:  langLimits.MaxMemoryBytes,
+		},
+		{
+			name:        "within limits is unchanged",
+			memoryBytes: 128 * 1024 * 1024,
+			wantMemory:  128 * 1024 * 1024,
+		},
+		{
+			name:        "above max is clamped",
+			memoryBytes: langLimits.MaxMemoryBytes + 1024,
+			wantMemory:  langLimits.MaxMemoryBytes,
+		},
+		{
+			name:        "below min is clamped",
+			memoryBytes: langLimits.MinMemoryBytes - 1024,
+			wantMemory:  langLimits.MinMemoryBytes,
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			rs := RunSpec{MemoryBytes: tc.memoryBytes}
+			ds := dockerSpec{limits: langLimits}
+			hostConfig := getHostConfig(rs, ds, "tmpdir")
+			if hostConfig.Memory != tc.wantMemory {
+				t.Errorf("getHostConfig(...).Memory = %d, want %d", hostConfig.Memory, tc.wantMemory)
+			}
+			if hostConfig.MemorySwap != tc.wantMemory {
+				t.Errorf("getHostConfig(...).MemorySwap = %d, want %d", hostConfig.MemorySwap, tc.wantMemory)
+			}
+			if hostConfig.PidsLimit == nil || *hostConfig.PidsLimit != langLimits.MaxPids {
+				t.Errorf("getHostConfig(...).PidsLimit = %v, want %d", hostConfig.PidsLimit, langLimits.MaxPids)
+			}
+		})
+	}
+}
+
+func TestLangSpec(t *testing.T) {
+	sb := &DockerSandbox{
+		specs: map[string]langEntry{
+			"python": {
+				defaultVersion: "3.14",
+				versions:       map[string]string{"3.14": "python:3.14", "3.13": "python:3.13", "3.12": "python:3.12"},
+				filename:       "main.py",
+				limits:         fillUnsetLangLimits(LangLimits{}),
+			},
+		},
+	}
+
+	cases := []struct {
+		name       string
+		language   string
+		version    string
+		wantErr    error
+		wantResult LangSpec
+	}{
+		{
+			name:     "valid language and version",
+			language: "python",
+			version:  "3.14",
+			wantErr:  nil,
+			wantResult: LangSpec{
+				Filename: "main.py",
+				Limits:   fillUnsetLangLimits(LangLimits{}),
+			},
+		},
+		{
+			name:     "valid language with default version",
+			language: "python",
+			version:  "",
+			wantErr:  nil,
+			wantResult: LangSpec{
+				Filename: "main.py",
+				Limits:   fillUnsetLangLimits(LangLimits{}),
+			},
+		},
+		{
+			name:     "unsupported language",
+			language: "ruby",
+			version:  "3.0",
+			wantErr:  ErrUnsupportedLanguage,
+		},
+		{
+			name:     "unsupported version",
+			language: "python",
+			version:  "3.11",
+			wantErr:  ErrUnsupportedVersion,
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got, err := sb.LangSpec(tc.language, tc.version)
+			if !errors.Is(err, tc.wantErr) {
+				t.Fatalf("LangSpec(%q, %q) error = %v, want %v", tc.language, tc.version, err, tc.wantErr)
+			}
+			if err == nil && got != tc.wantResult {
+				t.Errorf("LangSpec(%q, %q) = %+v, want %+v", tc.language, tc.version, got, tc.wantResult)
+			}
+		})
+	}
+}
+
+func TestSetupWorkspace(t *testing.T) {
+	t.Run("stages code and workspace files", func(t *testing.T) {
+		const code = "print('code wins')"
+		files := []WorkspaceFile{
+			{Path: "helper.py", Content: "def help(): pass"},
+			{Path: "data/input.txt", Content: "nested content"},
+			{Path: "main.py", Content: "this should be overwritten by code"},
+		}
+
+		tmpDir, err := setupWorkspace("test-*", code, "main.py", files)
+		if err != nil {
+			t.Fatalf("setupWorkspace: %v", err)
+		}
+		defer os.RemoveAll(tmpDir)
+
+		assertFile := func(rel, want string) {
+			t.Helper()
+			got, err := os.ReadFile(filepath.Join(tmpDir, rel))
+			if err != nil {
+				t.Fatalf("reading %s: %v", rel, err)
+			}
+			if string(got) != want {
+				t.Errorf("%s = %q, want %q", rel, got, want)
+			}
+		}
+
+		assertFile("helper.py", "def help(): pass")
+		assertFile("data/input.txt", "nested content")
+		// Code is written last, so it wins a collision with a workspace file.
+		assertFile("main.py", code)
+	})
+
+	t.Run("rejects non-local path and cleans up", func(t *testing.T) {
+		tmpDir, err := setupWorkspace("test-*", "code", "main.py", []WorkspaceFile{
+			{Path: "../escape", Content: "nope"},
+		})
+		if err == nil {
+			t.Fatalf("expected error for non-local path, got nil")
+		}
+		if tmpDir != "" {
+			if _, statErr := os.Stat(tmpDir); !os.IsNotExist(statErr) {
+				t.Errorf("tmpDir %q should have been removed, stat err = %v", tmpDir, statErr)
+			}
+		}
+	})
 }
