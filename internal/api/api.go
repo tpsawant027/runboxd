@@ -33,7 +33,6 @@ type Server struct {
 
 	sandboxSupportsInfo bool
 	sandboxInfo         *sandbox.SandboxInfo
-	sandboxLimits       sandbox.Limits
 }
 
 func NewServer(logger *slog.Logger, sb sandbox.Sandbox, pool *WorkerPool) *Server {
@@ -51,11 +50,8 @@ func NewServer(logger *slog.Logger, sb sandbox.Sandbox, pool *WorkerPool) *Serve
 		logger.Info("sandbox does not support Info() method, info endpoint will be limited")
 	}
 
-	limits := sb.Limits()
-
 	return &Server{
-		logger: logger, sandbox: sb, pool: pool, sandboxSupportsInfo: supportsInfo,
-		sandboxInfo: info, sandboxLimits: limits,
+		logger: logger, sandbox: sb, pool: pool, sandboxSupportsInfo: supportsInfo, sandboxInfo: info,
 	}
 }
 
@@ -101,7 +97,7 @@ func (s *Server) handleReadyz(w http.ResponseWriter, r *http.Request) error {
 }
 
 func (s *Server) handleInfo(w http.ResponseWriter, r *http.Request) error {
-	resp := InfoResponse{Languages: []sandbox.LanguageInfo{}}
+	resp := InfoResponse{Languages: []LanguageInfoResponse{}}
 
 	info := s.sandboxInfo
 	if info == nil && s.sandboxSupportsInfo {
@@ -114,16 +110,12 @@ func (s *Server) handleInfo(w http.ResponseWriter, r *http.Request) error {
 		}
 	}
 	if info != nil {
-		resp.Languages = info.Languages
+		resp.Languages = toLanguageInfoResponses(info.Languages)
 	}
 
-	resp.Limits = LimitsResponse{
-		MinTimeoutSeconds:         s.sandboxLimits.MinTimeout.Seconds(),
-		MaxTimeoutSeconds:         s.sandboxLimits.MaxTimeout.Seconds(),
-		MinMemoryBytes:            s.sandboxLimits.MinMemoryBytes,
-		MaxMemoryBytes:            s.sandboxLimits.MaxMemoryBytes,
-		MaxWorkspaceFiles:         maxWorkspaceFiles,
-		MaxWorkspaceFileSizeBytes: maxWorkspaceFileSize,
+	resp.Workspace = WorkspaceLimitsResponse{
+		MaxFiles:         maxWorkspaceFiles,
+		MaxFileSizeBytes: maxWorkspaceFileSize,
 	}
 
 	writeJSON(w, http.StatusOK, resp)
@@ -136,7 +128,15 @@ func (s *Server) handleExecute(w http.ResponseWriter, r *http.Request) error {
 		return err
 	}
 
-	if err := validateExecuteRequest(&req, s.sandboxLimits); err != nil {
+	if err := validateExecuteRequestBasic(&req); err != nil {
+		return err
+	}
+
+	ls, err := s.sandbox.LangSpec(req.Language, req.Version)
+	if err != nil {
+		return mapRunError(err)
+	}
+	if err := validateLimits(&req, ls.Limits); err != nil {
 		return err
 	}
 
@@ -170,7 +170,22 @@ func (s *Server) handleExecute(w http.ResponseWriter, r *http.Request) error {
 	return nil
 }
 
-func validateExecuteRequest(req *ExecuteRequest, sandboxLimits sandbox.Limits) error {
+func validateLimits(req *ExecuteRequest, limits sandbox.LangLimits) error {
+	if req.TimeoutSeconds != 0 {
+		timeout := time.Duration(req.TimeoutSeconds) * time.Second
+		if timeout < limits.MinTimeout || timeout > limits.MaxTimeout {
+			return badRequest(fmt.Sprintf("timeout_seconds must be within [%d, %d] seconds", int64(limits.MinTimeout.Seconds()), int64(limits.MaxTimeout.Seconds())))
+		}
+	}
+	if req.MemoryBytes != 0 {
+		if req.MemoryBytes < limits.MinMemoryBytes || req.MemoryBytes > limits.MaxMemoryBytes {
+			return badRequest(fmt.Sprintf("memory_bytes must be within [%d, %d]", limits.MinMemoryBytes, limits.MaxMemoryBytes))
+		}
+	}
+	return nil
+}
+
+func validateExecuteRequestBasic(req *ExecuteRequest) error {
 	req.Language = strings.TrimSpace(req.Language)
 	if req.Language == "" {
 		return badRequest("language is required")
@@ -179,21 +194,11 @@ func validateExecuteRequest(req *ExecuteRequest, sandboxLimits sandbox.Limits) e
 	if req.Code == "" {
 		return badRequest("code is required")
 	}
-	if req.TimeoutSeconds != 0 {
-		if req.TimeoutSeconds < int64(sandboxLimits.MinTimeout.Seconds()) {
-			return badRequest(fmt.Sprintf("timeout_seconds must be at least %d", int64(sandboxLimits.MinTimeout.Seconds())))
-		}
-		if req.TimeoutSeconds > int64(sandboxLimits.MaxTimeout.Seconds()) {
-			return badRequest(fmt.Sprintf("timeout_seconds must be at most %d", int64(sandboxLimits.MaxTimeout.Seconds())))
-		}
+	if req.TimeoutSeconds < 0 {
+		return badRequest("timeout_seconds must be non-negative")
 	}
-	if req.MemoryBytes != 0 {
-		if req.MemoryBytes < sandboxLimits.MinMemoryBytes {
-			return badRequest(fmt.Sprintf("memory_bytes must be at least %d", sandboxLimits.MinMemoryBytes))
-		}
-		if req.MemoryBytes > sandboxLimits.MaxMemoryBytes {
-			return badRequest(fmt.Sprintf("memory_bytes must be at most %d", sandboxLimits.MaxMemoryBytes))
-		}
+	if req.MemoryBytes < 0 {
+		return badRequest("memory_bytes must be non-negative")
 	}
 	if err := validateWorkspaceFiles(req.WorkspaceFiles); err != nil {
 		return err
@@ -223,6 +228,26 @@ func toSandboxWorkspaceFiles(files []WorkspaceFile) []sandbox.WorkspaceFile {
 	out := make([]sandbox.WorkspaceFile, len(files))
 	for i, f := range files {
 		out[i] = sandbox.WorkspaceFile{Path: f.Path, Content: f.Content}
+	}
+	return out
+}
+
+func toLanguageInfoResponses(langs []sandbox.LanguageInfo) []LanguageInfoResponse {
+	out := make([]LanguageInfoResponse, len(langs))
+	for i, l := range langs {
+		out[i] = LanguageInfoResponse{
+			Name:           l.Name,
+			DefaultVersion: l.DefaultVersion,
+			Versions:       l.Versions,
+			Filename:       l.Filename,
+			Limits: LimitsResponse{
+				MinTimeoutSeconds: int64(l.Limits.MinTimeout.Seconds()),
+				MaxTimeoutSeconds: int64(l.Limits.MaxTimeout.Seconds()),
+				MinMemoryBytes:    l.Limits.MinMemoryBytes,
+				MaxMemoryBytes:    l.Limits.MaxMemoryBytes,
+				MaxPids:           l.Limits.MaxPids,
+			},
+		}
 	}
 	return out
 }

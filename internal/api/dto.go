@@ -1,9 +1,5 @@
 package api
 
-import (
-	"github.com/tpsawant027/runboxd/internal/sandbox"
-)
-
 // WorkspaceFile represents a file in the workspace.
 type WorkspaceFile struct {
 	Path    string `json:"path"`
@@ -30,18 +26,32 @@ type ExecuteResponse struct {
 	DurationMs int64  `json:"duration_ms"`
 }
 
-// LimitsResponse represents the JSON body of the limits information in an info response.
+// LimitsResponse is the per-language resource limits in an info response.
 type LimitsResponse struct {
-	MinTimeoutSeconds         float64 `json:"min_timeout_seconds"`
-	MaxTimeoutSeconds         float64 `json:"max_timeout_seconds"`
-	MinMemoryBytes            int64   `json:"min_memory_bytes"`
-	MaxMemoryBytes            int64   `json:"max_memory_bytes"`
-	MaxWorkspaceFiles         int     `json:"max_workspace_files"`
-	MaxWorkspaceFileSizeBytes int     `json:"max_workspace_file_size_bytes"`
+	MinTimeoutSeconds int64 `json:"min_timeout_seconds"`
+	MaxTimeoutSeconds int64 `json:"max_timeout_seconds"`
+	MinMemoryBytes    int64 `json:"min_memory_bytes"`
+	MaxMemoryBytes    int64 `json:"max_memory_bytes"`
+	MaxPids           int64 `json:"max_pids"`
+}
+
+// LanguageInfoResponse describes a supported language in an info response.
+type LanguageInfoResponse struct {
+	Name           string         `json:"name"`
+	DefaultVersion string         `json:"default_version"`
+	Versions       []string       `json:"versions"`
+	Filename       string         `json:"filename"`
+	Limits         LimitsResponse `json:"limits"`
+}
+
+// WorkspaceLimitsResponse is the global workspace-file limits in an info response.
+type WorkspaceLimitsResponse struct {
+	MaxFiles         int `json:"max_files"`
+	MaxFileSizeBytes int `json:"max_file_size_bytes"`
 }
 
 // InfoResponse represents the JSON body of an info response.
 type InfoResponse struct {
-	Languages []sandbox.LanguageInfo `json:"languages"`
-	Limits    LimitsResponse         `json:"limits"`
+	Languages []LanguageInfoResponse  `json:"languages"`
+	Workspace WorkspaceLimitsResponse `json:"workspace"`
 }

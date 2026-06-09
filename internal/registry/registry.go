@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 
+	"github.com/tpsawant027/runboxd/internal/imagespec"
 	"go.yaml.in/yaml/v4"
 )
 
@@ -17,6 +18,7 @@ type Language struct {
 	Type           string             `yaml:"type"`
 	Filename       string             `yaml:"filename"`
 	DefaultVersion string             `yaml:"default_version"`
+	Limits         imagespec.Limits   `yaml:"limits"`
 	Versions       map[string]Version `yaml:"versions"`
 	Artifact       Artifact           `yaml:"artifact"`
 }

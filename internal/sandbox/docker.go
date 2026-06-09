@@ -18,6 +18,7 @@ import (
 	"github.com/moby/moby/api/types/container"
 	"github.com/moby/moby/api/types/mount"
 	"github.com/moby/moby/client"
+	"github.com/tpsawant027/runboxd/internal/imagespec"
 	"github.com/tpsawant027/runboxd/internal/registry"
 	"golang.org/x/sync/errgroup"
 )
@@ -32,11 +33,21 @@ const (
 	MaxOutputBytes        = 1 * 1024 * 1024   // 1 MiB per stream
 	MaxLogConfigFileSize  = "3m"
 	MaxLogConfigFileCount = "1"
+
+	ImagePullTimeout = 2 * time.Minute
 )
 
 const (
 	managedLabel = "runboxd.managed"
 	reapMaxAge   = time.Minute
+
+	sandboxDir = "/sandbox"
+	inputDir   = "/input"
+)
+
+var (
+	ErrUnsupportedLanguage = errors.New("unsupported language")
+	ErrUnsupportedVersion  = errors.New("unsupported version")
 )
 
 // limitWriter caps writes at n bytes, silently discarding the rest.
@@ -55,71 +66,23 @@ func (lw *limitWriter) Write(p []byte) (int, error) {
 	return len(p), nil
 }
 
-const (
-	sandboxDir = "/sandbox"
-	inputDir   = "/input"
-)
-
 type dockerSpec struct {
 	filename string
 	image    string
+	limits   LangLimits
 }
-
-const ImagePullTimeout = 2 * time.Minute
-
-var (
-	ErrUnsupportedLanguage = errors.New("unsupported language")
-	ErrUnsupportedVersion  = errors.New("unsupported version")
-)
 
 type langEntry struct {
 	defaultVersion string
-	versions       map[string]dockerSpec
+	filename       string
+	limits         LangLimits
+	versions       map[string]string // version -> image
 }
 
 type DockerSandbox struct {
 	client *client.Client
 	specs  map[string]langEntry
 	logger *slog.Logger
-}
-
-func (s *DockerSandbox) lookupSpec(lang, version string) (dockerSpec, error) {
-	entry, ok := s.specs[lang]
-	if !ok {
-		return dockerSpec{}, ErrUnsupportedLanguage
-	}
-	if version == "" {
-		version = entry.defaultVersion
-	}
-	spec, ok := entry.versions[version]
-	if !ok {
-		return dockerSpec{}, ErrUnsupportedVersion
-	}
-	return spec, nil
-}
-
-func ensureImage(ctx context.Context, cli *client.Client, image string) error {
-	_, err := cli.ImageInspect(ctx, image)
-	switch {
-	case err == nil:
-		// Present locally - nothing to pull.
-	case errdefs.IsNotFound(err):
-		// Pull once, draining to EOF so the pull completes before we return.
-		tctx, cancel := context.WithTimeout(ctx, ImagePullTimeout)
-		defer cancel()
-		reader, err := cli.ImagePull(tctx, image, client.ImagePullOptions{})
-		if err != nil {
-			return fmt.Errorf("image %q not available locally and pull failed (run 'make images'?): %w", image, err)
-		}
-		defer reader.Close()
-		if _, err := io.Copy(io.Discard, reader); err != nil {
-			return err
-		}
-	default:
-		// Real failure (daemon down, perms, ...), not a missing image — surface it.
-		return err
-	}
-	return nil
 }
 
 // TODO: background-pull many images and gate /readyz instead of blocking.
@@ -150,15 +113,20 @@ func NewDockerSandbox(registryPath string, logger *slog.Logger) (*DockerSandbox,
 			if !ok {
 				return fmt.Errorf("default version %q not found for language %q", entry.DefaultVersion, entry.Name)
 			}
+
+			limits := resolveLangLimits(entry.Limits)
+			if err := validateLangLimits(limits); err != nil {
+				return fmt.Errorf("invalid limits for language %q: %w", entry.Name, err)
+			}
+
 			spec := langEntry{
 				defaultVersion: defaultVersion.Name,
-				versions:       make(map[string]dockerSpec, len(entry.Versions)),
+				filename:       entry.Filename,
+				limits:         limits,
+				versions:       make(map[string]string, len(entry.Versions)),
 			}
 			for _, version := range entry.Versions {
-				spec.versions[version.Name] = dockerSpec{
-					filename: entry.Filename,
-					image:    version.Image,
-				}
+				spec.versions[version.Name] = version.Image
 				if err := ensureImage(gctx, cli, version.Image); err != nil {
 					return fmt.Errorf("failed to ensure image %q for language %q version %q: %w", version.Image, entry.Name, version.Name, err)
 				}
@@ -202,7 +170,7 @@ func (s *DockerSandbox) Run(ctx context.Context, spec RunSpec) (RunResult, error
 		cfg.OpenStdin = true
 		cfg.StdinOnce = true
 	}
-	hostCfg := getHostConfig(spec, tmpDir)
+	hostCfg := getHostConfig(spec, ds, tmpDir)
 
 	// Detach the create call from the request ctx: if the client disconnects mid-ContainerCreate,
 	// the request ctx cancels, the client call returns an error WITHOUT the container ID, and the
@@ -252,11 +220,9 @@ func (s *DockerSandbox) Run(ctx context.Context, spec RunSpec) (RunResult, error
 	}
 	startedAt := time.Now()
 
-	// A zero/negative Timeout means "unspecified" and falls back to the max;
-	// an explicit value is clamped to [MinTimeout, MaxTimeout].
-	timeout := MaxTimeout
+	timeout := ds.limits.MaxTimeout
 	if spec.Timeout > 0 {
-		timeout = max(MinTimeout, min(spec.Timeout, MaxTimeout))
+		timeout = max(ds.limits.MinTimeout, min(spec.Timeout, ds.limits.MaxTimeout))
 	}
 	execCtx, execCancel := context.WithTimeout(ctx, timeout)
 	defer execCancel()
@@ -321,13 +287,15 @@ func (s *DockerSandbox) Ping(ctx context.Context) error {
 	return err
 }
 
-func (s *DockerSandbox) Limits() Limits {
-	return Limits{
-		MinTimeout:     MinTimeout,
-		MaxTimeout:     MaxTimeout,
-		MinMemoryBytes: MinMemoryBytes,
-		MaxMemoryBytes: MaxMemoryBytes,
+func (s *DockerSandbox) LangSpec(language, version string) (LangSpec, error) {
+	ds, err := s.lookupSpec(language, version)
+	if err != nil {
+		return LangSpec{}, err
 	}
+	return LangSpec{
+		Filename: ds.filename,
+		Limits:   ds.limits,
+	}, nil
 }
 
 func (s *DockerSandbox) Info(_ context.Context) (SandboxInfo, error) {
@@ -341,21 +309,34 @@ func (s *DockerSandbox) Info(_ context.Context) (SandboxInfo, error) {
 			Name:           name,
 			DefaultVersion: entry.defaultVersion,
 			Versions:       versions,
+			Filename:       entry.filename,
+			Limits:         entry.limits,
 		})
 	}
 	return SandboxInfo{Languages: langs}, nil
 }
 
-func (s *DockerSandbox) Filename(language, version string) (string, error) {
-	ds, err := s.lookupSpec(language, version)
-	if err != nil {
-		return "", err
-	}
-	return ds.filename, nil
-}
-
 func (s *DockerSandbox) ReapOrphans(ctx context.Context) {
 	s.reapOrphans(ctx, reapMaxAge)
+}
+
+func (s *DockerSandbox) lookupSpec(lang, version string) (dockerSpec, error) {
+	entry, ok := s.specs[lang]
+	if !ok {
+		return dockerSpec{}, ErrUnsupportedLanguage
+	}
+	if version == "" {
+		version = entry.defaultVersion
+	}
+	image, ok := entry.versions[version]
+	if !ok {
+		return dockerSpec{}, ErrUnsupportedVersion
+	}
+	return dockerSpec{
+		filename: entry.filename,
+		image:    image,
+		limits:   entry.limits,
+	}, nil
 }
 
 func (s *DockerSandbox) reapOrphans(ctx context.Context, maxAge time.Duration) {
@@ -378,6 +359,88 @@ func (s *DockerSandbox) reapOrphans(ctx context.Context, maxAge time.Duration) {
 		}
 		cancel()
 	}
+}
+
+func ensureImage(ctx context.Context, cli *client.Client, image string) error {
+	_, err := cli.ImageInspect(ctx, image)
+	switch {
+	case err == nil:
+		// Present locally - nothing to pull.
+	case errdefs.IsNotFound(err):
+		// Pull once, draining to EOF so the pull completes before we return.
+		tctx, cancel := context.WithTimeout(ctx, ImagePullTimeout)
+		defer cancel()
+		reader, err := cli.ImagePull(tctx, image, client.ImagePullOptions{})
+		if err != nil {
+			return fmt.Errorf("image %q not available locally and pull failed (run 'make images'?): %w", image, err)
+		}
+		defer reader.Close()
+		if _, err := io.Copy(io.Discard, reader); err != nil {
+			return err
+		}
+	default:
+		// Real failure (daemon down, perms, ...), not a missing image — surface it.
+		return err
+	}
+	return nil
+}
+
+// valueWithDefault returns defaultValue when value is the zero value of T.
+// DO NOT use for fields where zero is a valid explicit value.
+func valueWithDefault[T comparable](value, defaultValue T) T {
+	var zero T
+	if value == zero {
+		return defaultValue
+	}
+	return value
+}
+
+// resolveLangLimits converts the registry's ergonomic limits (MiB/seconds, zero =
+// unset) into resolved LangLimits, filling unset fields from the package-const
+// defaults. Max is resolved first; an unset min defaults to the package floor but
+// is clamped to never exceed the resolved max (so setting only a low max doesn't
+// trip the min<=max check). An explicit min>max is left intact for validation.
+func resolveLangLimits(l imagespec.Limits) LangLimits {
+	maxTimeout := valueWithDefault(time.Duration(l.MaxTimeoutSeconds)*time.Second, MaxTimeout)
+	maxMemory := valueWithDefault(int64(l.MaxMemoryMiB)*1024*1024, MaxMemoryBytes)
+
+	minTimeout := time.Duration(l.MinTimeoutSeconds) * time.Second
+	if minTimeout == 0 {
+		minTimeout = min(MinTimeout, maxTimeout)
+	}
+	minMemory := int64(l.MinMemoryMiB) * 1024 * 1024
+	if minMemory == 0 {
+		minMemory = min(MinMemoryBytes, maxMemory)
+	}
+
+	return LangLimits{
+		MinTimeout:     minTimeout,
+		MaxTimeout:     maxTimeout,
+		MinMemoryBytes: minMemory,
+		MaxMemoryBytes: maxMemory,
+		MaxPids:        valueWithDefault(int64(l.MaxPids), MaxPids),
+	}
+}
+
+func validateLangLimits(limits LangLimits) error {
+	if limits.MinTimeout < 0 || limits.MaxTimeout < 0 {
+		return fmt.Errorf("timeout limits must be non-negative")
+	}
+	if limits.MinMemoryBytes < 0 || limits.MaxMemoryBytes < 0 {
+		return fmt.Errorf("memory limits must be non-negative")
+	}
+	if limits.MaxPids < 1 {
+		return fmt.Errorf("MaxPids must be at least 1")
+	}
+
+	if limits.MinTimeout > limits.MaxTimeout {
+		return fmt.Errorf("MinTimeout cannot be greater than MaxTimeout")
+	}
+	if limits.MinMemoryBytes > limits.MaxMemoryBytes {
+		return fmt.Errorf("MinMemoryBytes cannot be greater than MaxMemoryBytes")
+	}
+
+	return nil
 }
 
 func isOrphan(created int64, now time.Time, maxAge time.Duration) bool {
@@ -419,10 +482,10 @@ func setupWorkspace(tmpDirPattern, code, codeFilename string, workspaceFiles []W
 	return tmpDir, nil
 }
 
-func getHostConfig(spec RunSpec, inputSrc string) *container.HostConfig {
+func getHostConfig(spec RunSpec, ds dockerSpec, inputSrc string) *container.HostConfig {
 	hc := &container.HostConfig{
 		Resources: container.Resources{
-			PidsLimit: new(int64(MaxPids)),
+			PidsLimit: new(ds.limits.MaxPids),
 			Memory:    MaxMemoryBytes,
 			NanoCPUs:  DefaultNanoCPUs,
 		},
@@ -447,11 +510,9 @@ func getHostConfig(spec RunSpec, inputSrc string) *container.HostConfig {
 			Config: map[string]string{"max-size": MaxLogConfigFileSize, "max-file": MaxLogConfigFileCount},
 		},
 	}
-	// A zero/negative MemoryBytes means "unspecified" and falls back to the max;
-	// an explicit value is clamped to [MinMemoryBytes, MaxMemoryBytes].
-	hc.Memory = MaxMemoryBytes
+	hc.Memory = ds.limits.MaxMemoryBytes
 	if spec.MemoryBytes > 0 {
-		hc.Memory = max(MinMemoryBytes, min(spec.MemoryBytes, MaxMemoryBytes))
+		hc.Memory = max(ds.limits.MinMemoryBytes, min(spec.MemoryBytes, ds.limits.MaxMemoryBytes))
 	}
 	hc.MemorySwap = hc.Memory
 	return hc

@@ -3,6 +3,12 @@ type: interpreted
 filename: main.py
 default_version: "3.14"
 exec_cmd: python
+limits:
+  min_memory_mib: 64
+  max_memory_mib: 128
+  min_timeout_seconds: 1
+  max_timeout_seconds: 10
+  max_pids: 64
 versions:
   "3.14":
     base_image: python:3.14-slim

@@ -20,7 +20,16 @@ type ImageSpec struct {
 	Filename       string             `yaml:"filename"`
 	DefaultVersion string             `yaml:"default_version"`
 	ExecCmd        string             `yaml:"exec_cmd"`
+	Limits         Limits             `yaml:"limits"`
 	Versions       map[string]Version `yaml:"versions"`
+}
+
+type Limits struct {
+	MinMemoryMiB      int `yaml:"min_memory_mib"`
+	MaxMemoryMiB      int `yaml:"max_memory_mib"`
+	MinTimeoutSeconds int `yaml:"min_timeout_seconds"`
+	MaxTimeoutSeconds int `yaml:"max_timeout_seconds"`
+	MaxPids           int `yaml:"max_pids"`
 }
 
 type Version struct {

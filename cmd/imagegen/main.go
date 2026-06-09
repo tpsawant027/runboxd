@@ -78,6 +78,7 @@ func main() {
 			Type:           entry.Spec.Type,
 			Filename:       entry.Spec.Filename,
 			DefaultVersion: entry.Spec.DefaultVersion,
+			Limits:         entry.Spec.Limits,
 			Versions:       make(map[string]registry.Version),
 			Artifact: registry.Artifact{
 				Name:             entry.Spec.Filename,

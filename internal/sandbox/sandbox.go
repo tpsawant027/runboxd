@@ -43,28 +43,35 @@ type RunResult struct {
 	Duration time.Duration
 }
 
-// LanguageInfo describes a programming language supported by the sandbox, including available versions.
-type LanguageInfo struct {
-	Name           string
-	DefaultVersion string
-	Versions       []string
-}
-
 // SandboxInfo provides information about the sandbox's capabilities.
 type SandboxInfo struct {
 	Languages []LanguageInfo
 }
 
-// Limits defines the maximum and minimum allowed values for timeouts and memory usage.
-type Limits struct {
+// LanguageInfo describes a programming language supported by the sandbox, including its versions and resource limits.
+type LanguageInfo struct {
+	Name           string
+	DefaultVersion string
+	Versions       []string
+	Filename       string
+	Limits         LangLimits
+}
+
+type LangLimits struct {
 	MinTimeout, MaxTimeout         time.Duration
 	MinMemoryBytes, MaxMemoryBytes int64
+	MaxPids                        int64
+}
+
+type LangSpec struct {
+	Filename string
+	Limits   LangLimits
 }
 
 // Sandbox isolates and runs untrusted code.
 type Sandbox interface {
 	Run(ctx context.Context, spec RunSpec) (RunResult, error)
-	Limits() Limits
+	LangSpec(language, version string) (LangSpec, error)
 }
 
 // Pinger is an optional interface that a Sandbox can implement to allow health checks.
@@ -75,5 +82,4 @@ type Pinger interface {
 // Informer is an optional interface that a Sandbox can implement to provide information about supported languages, versions, etc.
 type Informer interface {
 	Info(ctx context.Context) (SandboxInfo, error)
-	Filename(language, version string) (string, error)
 }
