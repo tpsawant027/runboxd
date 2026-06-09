@@ -23,10 +23,15 @@ import (
 )
 
 const (
-	MaxTimeout      = 10 * time.Second
-	MaxMemoryBytes  = 128 * 1024 * 1024 // 128 MiB
-	DefaultNanoCPUs = 500_000_000       // 0.5 CPU
-	MaxOutputBytes  = 1 * 1024 * 1024   // 1 MiB per stream
+	MaxPids               = 100
+	MinTimeout            = 1 * time.Second
+	MaxTimeout            = 10 * time.Second
+	MinMemoryBytes        = 64 * 1024 * 1024  // 64 MiB
+	MaxMemoryBytes        = 256 * 1024 * 1024 // 256 MiB
+	DefaultNanoCPUs       = 500_000_000       // 0.5 CPU
+	MaxOutputBytes        = 1 * 1024 * 1024   // 1 MiB per stream
+	MaxLogConfigFileSize  = "3m"
+	MaxLogConfigFileCount = "1"
 )
 
 const (
@@ -176,22 +181,14 @@ func (s *DockerSandbox) Run(ctx context.Context, spec RunSpec) (RunResult, error
 	if err != nil {
 		return RunResult{}, err
 	}
+
 	runResInternalErr := RunResult{Status: StatusInternalError}
 
-	// NOTE: the bind-mount source path is resolved on the Docker daemon host - fine
-	// for local dev (daemon on same host), but would break with a remote daemon.
-	tmpDir, err := os.MkdirTemp("", "runboxd-*")
+	tmpDir, err := setupWorkspace("runboxd-*", spec.Code, ds.filename, spec.WorkspaceFiles)
 	if err != nil {
-		return runResInternalErr, fmt.Errorf("failed to create temp dir: %w", err)
+		return runResInternalErr, fmt.Errorf("failed to setup workspace: %w", err)
 	}
 	defer os.RemoveAll(tmpDir)
-	if err := os.Chmod(tmpDir, 0o755); err != nil {
-		return runResInternalErr, fmt.Errorf("failed to chmod temp dir: %w", err)
-	}
-	codePath := filepath.Join(tmpDir, ds.filename)
-	if err := os.WriteFile(codePath, []byte(spec.Code), 0o644); err != nil {
-		return runResInternalErr, fmt.Errorf("failed to write code file: %w", err)
-	}
 
 	cfg := &container.Config{
 		User:       "65534", // nobody
@@ -255,9 +252,11 @@ func (s *DockerSandbox) Run(ctx context.Context, spec RunSpec) (RunResult, error
 	}
 	startedAt := time.Now()
 
-	timeout := spec.Timeout
-	if timeout <= 0 || timeout > MaxTimeout {
-		timeout = MaxTimeout
+	// A zero/negative Timeout means "unspecified" and falls back to the max;
+	// an explicit value is clamped to [MinTimeout, MaxTimeout].
+	timeout := MaxTimeout
+	if spec.Timeout > 0 {
+		timeout = max(MinTimeout, min(spec.Timeout, MaxTimeout))
 	}
 	execCtx, execCancel := context.WithTimeout(ctx, timeout)
 	defer execCancel()
@@ -322,7 +321,16 @@ func (s *DockerSandbox) Ping(ctx context.Context) error {
 	return err
 }
 
-func (s *DockerSandbox) Info(ctx context.Context) (SandboxInfo, error) {
+func (s *DockerSandbox) Limits() Limits {
+	return Limits{
+		MinTimeout:     MinTimeout,
+		MaxTimeout:     MaxTimeout,
+		MinMemoryBytes: MinMemoryBytes,
+		MaxMemoryBytes: MaxMemoryBytes,
+	}
+}
+
+func (s *DockerSandbox) Info(_ context.Context) (SandboxInfo, error) {
 	langs := make([]LanguageInfo, 0, len(s.specs))
 	for name, entry := range s.specs {
 		versions := make([]string, 0, len(entry.versions))
@@ -336,6 +344,14 @@ func (s *DockerSandbox) Info(ctx context.Context) (SandboxInfo, error) {
 		})
 	}
 	return SandboxInfo{Languages: langs}, nil
+}
+
+func (s *DockerSandbox) Filename(language, version string) (string, error) {
+	ds, err := s.lookupSpec(language, version)
+	if err != nil {
+		return "", err
+	}
+	return ds.filename, nil
 }
 
 func (s *DockerSandbox) ReapOrphans(ctx context.Context) {
@@ -368,11 +384,47 @@ func isOrphan(created int64, now time.Time, maxAge time.Duration) bool {
 	return created <= now.Add(-maxAge).Unix()
 }
 
+func setupWorkspace(tmpDirPattern, code, codeFilename string, workspaceFiles []WorkspaceFile) (tmpDir string, err error) {
+	defer func() {
+		if err != nil && tmpDir != "" {
+			_ = os.RemoveAll(tmpDir)
+		}
+	}()
+
+	// NOTE: the bind-mount source path is resolved on the Docker daemon host - fine
+	// for local dev (daemon on same host), but would break with a remote daemon.
+	tmpDir, err = os.MkdirTemp("", tmpDirPattern)
+	if err != nil {
+		return tmpDir, fmt.Errorf("failed to create temp dir: %w", err)
+	}
+	if err := os.Chmod(tmpDir, 0o755); err != nil {
+		return tmpDir, fmt.Errorf("failed to chmod temp dir: %w", err)
+	}
+	for _, wf := range workspaceFiles {
+		if !filepath.IsLocal(wf.Path) {
+			return tmpDir, fmt.Errorf("invalid workspace file path: %s", wf.Path)
+		}
+		dst := filepath.Join(tmpDir, wf.Path)
+		if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
+			return tmpDir, fmt.Errorf("failed to create workspace mkdir: %w", err)
+		}
+		if err := os.WriteFile(dst, []byte(wf.Content), 0o644); err != nil {
+			return tmpDir, fmt.Errorf("failed to write workspace file: %w", err)
+		}
+	}
+	codePath := filepath.Join(tmpDir, codeFilename)
+	if err := os.WriteFile(codePath, []byte(code), 0o644); err != nil {
+		return tmpDir, fmt.Errorf("failed to write code file: %w", err)
+	}
+	return tmpDir, nil
+}
+
 func getHostConfig(spec RunSpec, inputSrc string) *container.HostConfig {
 	hc := &container.HostConfig{
 		Resources: container.Resources{
-			Memory:   MaxMemoryBytes,
-			NanoCPUs: DefaultNanoCPUs,
+			PidsLimit: new(int64(MaxPids)),
+			Memory:    MaxMemoryBytes,
+			NanoCPUs:  DefaultNanoCPUs,
 		},
 		CapDrop:        []string{"ALL"},
 		SecurityOpt:    []string{"no-new-privileges:true"},
@@ -390,9 +442,16 @@ func getHostConfig(spec RunSpec, inputSrc string) *container.HostConfig {
 				ReadOnly: true,
 			},
 		},
+		LogConfig: container.LogConfig{
+			Type:   "json-file",
+			Config: map[string]string{"max-size": MaxLogConfigFileSize, "max-file": MaxLogConfigFileCount},
+		},
 	}
-	if spec.MemoryBytes > 0 && spec.MemoryBytes < MaxMemoryBytes {
-		hc.Memory = spec.MemoryBytes
+	// A zero/negative MemoryBytes means "unspecified" and falls back to the max;
+	// an explicit value is clamped to [MinMemoryBytes, MaxMemoryBytes].
+	hc.Memory = MaxMemoryBytes
+	if spec.MemoryBytes > 0 {
+		hc.Memory = max(MinMemoryBytes, min(spec.MemoryBytes, MaxMemoryBytes))
 	}
 	hc.MemorySwap = hc.Memory
 	return hc

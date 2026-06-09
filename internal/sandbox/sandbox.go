@@ -17,14 +17,21 @@ const (
 	StatusInternalError Status = "internal_error" // the sandbox itself failed
 )
 
+// WorkspaceFile represents a file in the sandbox's workspace.
+type WorkspaceFile struct {
+	Path    string
+	Content string
+}
+
 // RunSpec is a single execution request handed to a Sandbox.
 type RunSpec struct {
-	Language    string
-	Version     string
-	Code        string
-	Stdin       string
-	Timeout     time.Duration
-	MemoryBytes int64
+	Language       string
+	Version        string
+	Code           string
+	WorkspaceFiles []WorkspaceFile
+	Stdin          string
+	Timeout        time.Duration
+	MemoryBytes    int64
 }
 
 // RunResult is the outcome of running code in a Sandbox.
@@ -36,19 +43,28 @@ type RunResult struct {
 	Duration time.Duration
 }
 
+// LanguageInfo describes a programming language supported by the sandbox, including available versions.
 type LanguageInfo struct {
 	Name           string
 	DefaultVersion string
 	Versions       []string
 }
 
+// SandboxInfo provides information about the sandbox's capabilities.
 type SandboxInfo struct {
 	Languages []LanguageInfo
+}
+
+// Limits defines the maximum and minimum allowed values for timeouts and memory usage.
+type Limits struct {
+	MinTimeout, MaxTimeout         time.Duration
+	MinMemoryBytes, MaxMemoryBytes int64
 }
 
 // Sandbox isolates and runs untrusted code.
 type Sandbox interface {
 	Run(ctx context.Context, spec RunSpec) (RunResult, error)
+	Limits() Limits
 }
 
 // Pinger is an optional interface that a Sandbox can implement to allow health checks.
@@ -59,4 +75,5 @@ type Pinger interface {
 // Informer is an optional interface that a Sandbox can implement to provide information about supported languages, versions, etc.
 type Informer interface {
 	Info(ctx context.Context) (SandboxInfo, error)
+	Filename(language, version string) (string, error)
 }
