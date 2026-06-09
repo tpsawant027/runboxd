@@ -1,0 +1,17 @@
+name: c
+type: compiled
+filename: main.c
+default_version: "15"
+exec_cmd: gcc # metadata only
+limits:
+  min_memory_mib: 64
+  max_memory_mib: 256
+  min_timeout_seconds: 1
+  max_timeout_seconds: 10
+  max_pids: 64
+versions:
+  "15":
+    base_image: gcc:15
+    build_cmd:
+      ["gcc", "/sandbox/main.c", "-O2", "-std=c17", "-o", "/build/a.out"]
+    run_cmd: ["/build/a.out"]

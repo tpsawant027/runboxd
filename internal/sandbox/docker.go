@@ -43,6 +43,7 @@ const (
 
 	sandboxDir = "/sandbox"
 	inputDir   = "/input"
+	buildDir   = "/build"
 )
 
 var (
@@ -67,6 +68,7 @@ func (lw *limitWriter) Write(p []byte) (int, error) {
 }
 
 type dockerSpec struct {
+	langType string
 	filename string
 	image    string
 	limits   LangLimits
@@ -74,6 +76,7 @@ type dockerSpec struct {
 
 type langEntry struct {
 	defaultVersion string
+	langType       string
 	filename       string
 	limits         LangLimits
 	versions       map[string]string // version -> image
@@ -121,6 +124,7 @@ func NewDockerSandbox(registryPath string, logger *slog.Logger) (*DockerSandbox,
 
 			spec := langEntry{
 				defaultVersion: defaultVersion.Name,
+				langType:       entry.Type,
 				filename:       entry.Filename,
 				limits:         limits,
 				versions:       make(map[string]string, len(entry.Versions)),
@@ -330,6 +334,7 @@ func (s *DockerSandbox) lookupSpec(lang, version string) (dockerSpec, error) {
 		return dockerSpec{}, ErrUnsupportedVersion
 	}
 	return dockerSpec{
+		langType: entry.langType,
 		filename: entry.filename,
 		image:    image,
 		limits:   entry.limits,
@@ -490,7 +495,6 @@ func getHostConfig(spec RunSpec, ds dockerSpec, inputSrc string) *container.Host
 	hc := &container.HostConfig{
 		Resources: container.Resources{
 			PidsLimit: new(ds.limits.MaxPids),
-			Memory:    MaxMemoryBytes,
 			NanoCPUs:  DefaultNanoCPUs,
 		},
 		CapDrop:        []string{"ALL"},
@@ -498,7 +502,7 @@ func getHostConfig(spec RunSpec, ds dockerSpec, inputSrc string) *container.Host
 		NetworkMode:    "none",
 		ReadonlyRootfs: true,
 		Tmpfs: map[string]string{
-			"/sandbox": "size=10m,noexec,mode=1777",
+			sandboxDir: "size=10m,noexec,mode=1777",
 			"/tmp":     "size=5m,noexec,mode=1777",
 		},
 		Mounts: []mount.Mount{
@@ -519,6 +523,9 @@ func getHostConfig(spec RunSpec, ds dockerSpec, inputSrc string) *container.Host
 		hc.Memory = max(ds.limits.MinMemoryBytes, min(spec.MemoryBytes, ds.limits.MaxMemoryBytes))
 	}
 	hc.MemorySwap = hc.Memory
+	if ds.langType == "compiled" {
+		hc.Tmpfs[buildDir] = "size=10m,exec,mode=1777,nosuid,nodev"
+	}
 	return hc
 }
 

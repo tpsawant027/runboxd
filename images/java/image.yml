@@ -1,0 +1,16 @@
+name: java
+type: compiled
+filename: Main.java
+default_version: "21"
+exec_cmd: java # metadata only
+limits:
+  min_memory_mib: 128
+  max_memory_mib: 512
+  min_timeout_seconds: 1
+  max_timeout_seconds: 10
+  max_pids: 64
+versions:
+  "21":
+    base_image: eclipse-temurin:21-jdk-ubi10-minimal
+    build_cmd: ["javac", "/sandbox/Main.java"]
+    run_cmd: ["java", "-cp", "/sandbox", "Main"]
