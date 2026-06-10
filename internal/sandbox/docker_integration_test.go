@@ -496,8 +496,8 @@ func TestRunConcurrency(t *testing.T) {
 func anyImage(t *testing.T, sb *DockerSandbox) string {
 	t.Helper()
 	for _, entry := range sb.specs {
-		if image, ok := entry.versions[entry.defaultVersion]; ok {
-			return image
+		if vs, ok := entry.versions[entry.defaultVersion]; ok {
+			return vs.image
 		}
 	}
 	t.Fatal("no image in registry")

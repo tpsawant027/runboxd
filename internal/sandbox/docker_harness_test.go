@@ -27,6 +27,34 @@ func newTestSandbox(t *testing.T) *DockerSandbox {
 	return sb
 }
 
+func newNsjailTestSandbox(t *testing.T) *NsjailSandbox {
+	t.Helper()
+	registryPath := os.Getenv("REGISTRY_PATH")
+	if registryPath == "" {
+		registryPath = "../../language_registry.yml"
+	}
+	rootfsRoot := os.Getenv("ROOTFS_PATH")
+	if rootfsRoot == "" {
+		rootfsRoot = "../../_rootfs"
+	}
+	sb, err := NewNsjailSandbox(registryPath, os.Getenv("NSJAIL_PATH"), rootfsRoot, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	if err != nil {
+		t.Skip("nsjail unavailable:", err)
+	}
+	t.Cleanup(func() { sb.Close() })
+	return sb
+}
+
+func newAdvSandbox(t *testing.T) Sandbox {
+	t.Helper()
+	switch os.Getenv("RUNBOXD_BACKEND") {
+	case "nsjail":
+		return newNsjailTestSandbox(t)
+	default:
+		return newTestSandbox(t)
+	}
+}
+
 func ensureRunResult(t *testing.T, got, want RunResult, wantStderrContains string) {
 	t.Helper()
 	if got.Status != want.Status {

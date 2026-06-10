@@ -24,8 +24,9 @@ type Language struct {
 }
 
 type Version struct {
-	Name  string `yaml:"name"`
-	Image string `yaml:"image"`
+	Name   string   `yaml:"name"`
+	Image  string   `yaml:"image"`
+	RunCmd []string `yaml:"run_cmd"`
 }
 
 type Artifact struct {

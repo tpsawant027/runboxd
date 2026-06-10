@@ -73,6 +73,7 @@ type LangSpec struct {
 type Sandbox interface {
 	Run(ctx context.Context, spec RunSpec) (RunResult, error)
 	LangSpec(language, version string) (LangSpec, error)
+	Close() error
 }
 
 // Pinger is an optional interface that a Sandbox can implement to allow health checks.
@@ -83,4 +84,11 @@ type Pinger interface {
 // Informer is an optional interface that a Sandbox can implement to provide information about supported languages, versions, etc.
 type Informer interface {
 	Info(ctx context.Context) (SandboxInfo, error)
+}
+
+// Reaper is an optional interface for backends that accumulate orphaned
+// resources needing periodic cleanup (DockerSandbox's leaked containers).
+// Backends with no such resources (NsjailSandbox) don't implement it.
+type Reaper interface {
+	ReapOrphans(ctx context.Context)
 }

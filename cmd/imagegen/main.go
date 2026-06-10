@@ -100,8 +100,9 @@ func main() {
 			}
 			createDockerfile(entry.Dir, entry.Spec.Name, versionName, force, version, entry.Spec, tmpl, wrapperContent)
 			languageRegistry.Languages[entry.Spec.Name].Versions[versionName] = registry.Version{
-				Name:  versionName,
-				Image: versionEntryImageNamePrefix + entry.Spec.Name + ":" + versionName,
+				Name:   versionName,
+				Image:  versionEntryImageNamePrefix + entry.Spec.Name + ":" + versionName,
+				RunCmd: version.RunCmd,
 			}
 		}
 	}

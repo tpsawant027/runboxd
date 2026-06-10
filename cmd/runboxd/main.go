@@ -36,17 +36,30 @@ func run() error {
 
 	pool := api.NewWorkerPool(cfg.WorkerPoolSize, cfg.MaxQueueSize)
 
-	sb, err := sandbox.NewDockerSandbox(cfg.RegistryPath, logger)
-	if err != nil {
-		return err
+	var sb sandbox.Sandbox
+
+	if cfg.SandboxBackend == "nsjail" {
+		var err error
+		sb, err = sandbox.NewNsjailSandbox(cfg.RegistryPath, cfg.NsjailPath, cfg.RootfsPath, logger)
+		if err != nil {
+			return err
+		}
+	} else {
+		var err error
+		sb, err = sandbox.NewDockerSandbox(cfg.RegistryPath, logger)
+		if err != nil {
+			return err
+		}
 	}
 	defer sb.Close()
 
-	reaperCtx, reaperCancel := context.WithCancel(context.Background())
-	reaperDone := make(chan struct{})
-	go func() { defer close(reaperDone); reapLoop(reaperCtx, sb, logger) }()
-	defer func() { reaperCancel(); <-reaperDone }()
-	sb.ReapOrphans(reaperCtx)
+	if reaper, ok := sb.(sandbox.Reaper); ok {
+		reaperCtx, reaperCancel := context.WithCancel(context.Background())
+		reaperDone := make(chan struct{})
+		go func() { defer close(reaperDone); reapLoop(reaperCtx, reaper) }()
+		defer func() { reaperCancel(); <-reaperDone }()
+		reaper.ReapOrphans(reaperCtx)
+	}
 
 	addr := ":" + cfg.Port
 	srv := &http.Server{
@@ -81,7 +94,7 @@ func run() error {
 	return nil
 }
 
-func reapLoop(ctx context.Context, sb *sandbox.DockerSandbox, logger *slog.Logger) {
+func reapLoop(ctx context.Context, sb sandbox.Reaper) {
 	t := time.NewTicker(reapInterval)
 	defer t.Stop()
 	for {

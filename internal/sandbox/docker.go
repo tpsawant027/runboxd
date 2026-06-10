@@ -76,12 +76,17 @@ type dockerSpec struct {
 	limits   LangLimits
 }
 
+type versionSpec struct {
+	image  string
+	runCmd []string
+}
+
 type langEntry struct {
 	defaultVersion string
 	langType       string
 	filename       string
 	limits         LangLimits
-	versions       map[string]string // version -> image
+	versions       map[string]versionSpec // version -> image + run command
 }
 
 type DockerSandbox struct {
@@ -89,6 +94,13 @@ type DockerSandbox struct {
 	specs  map[string]langEntry
 	logger *slog.Logger
 }
+
+var (
+	_ Sandbox  = (*DockerSandbox)(nil)
+	_ Pinger   = (*DockerSandbox)(nil)
+	_ Informer = (*DockerSandbox)(nil)
+	_ Reaper   = (*DockerSandbox)(nil)
+)
 
 // TODO: background-pull many images and gate /readyz instead of blocking.
 func NewDockerSandbox(registryPath string, logger *slog.Logger) (*DockerSandbox, error) {
@@ -129,10 +141,10 @@ func NewDockerSandbox(registryPath string, logger *slog.Logger) (*DockerSandbox,
 				langType:       entry.Type,
 				filename:       entry.Filename,
 				limits:         limits,
-				versions:       make(map[string]string, len(entry.Versions)),
+				versions:       make(map[string]versionSpec, len(entry.Versions)),
 			}
 			for _, version := range entry.Versions {
-				spec.versions[version.Name] = version.Image
+				spec.versions[version.Name] = versionSpec{image: version.Image, runCmd: version.RunCmd}
 				if err := ensureImage(gctx, cli, version.Image); err != nil {
 					return fmt.Errorf("failed to ensure image %q for language %q version %q: %w", version.Image, entry.Name, version.Name, err)
 				}
@@ -331,14 +343,14 @@ func (s *DockerSandbox) lookupSpec(lang, version string) (dockerSpec, error) {
 	if version == "" {
 		version = entry.defaultVersion
 	}
-	image, ok := entry.versions[version]
+	vs, ok := entry.versions[version]
 	if !ok {
 		return dockerSpec{}, ErrUnsupportedVersion
 	}
 	return dockerSpec{
 		langType: entry.langType,
 		filename: entry.filename,
-		image:    image,
+		image:    vs.image,
 		limits:   entry.limits,
 	}, nil
 }

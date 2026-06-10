@@ -21,7 +21,7 @@ func main() {
 	var rootfsDir string
 
 	flag.StringVar(&registryPath, "registry", "language_registry.yml", "path to registry YAML")
-	flag.StringVar(&rootfsDir, "rootfs", "rootfs", "directory to export root filesystems to")
+	flag.StringVar(&rootfsDir, "rootfs", "_rootfs", "directory to export root filesystems to (underscore prefix keeps it out of `go ./...`)")
 
 	flag.Parse()
 

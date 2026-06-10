@@ -11,6 +11,9 @@ type Config struct {
 	RegistryPath   string
 	WorkerPoolSize int
 	MaxQueueSize   int
+	SandboxBackend string
+	NsjailPath     string
+	RootfsPath     string
 }
 
 func Load() *Config {
@@ -19,6 +22,9 @@ func Load() *Config {
 		RegistryPath:   getEnvOrDefault("REGISTRY_PATH", "./language_registry.yml"),
 		WorkerPoolSize: parseIntEnvOrDefault("WORKER_POOL_SIZE", runtime.NumCPU(), 1),
 		MaxQueueSize:   parseIntEnvOrDefault("MAX_QUEUE_SIZE", runtime.NumCPU(), 0),
+		SandboxBackend: getEnvOrDefault("SANDBOX_BACKEND", "docker"),
+		NsjailPath:     getEnvOrDefault("NSJAIL_PATH", ""),
+		RootfsPath:     getEnvOrDefault("ROOTFS_PATH", "./_rootfs"),
 	}
 }
 

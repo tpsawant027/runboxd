@@ -403,7 +403,7 @@ func TestLangSpec(t *testing.T) {
 		specs: map[string]langEntry{
 			"python": {
 				defaultVersion: "3.14",
-				versions:       map[string]string{"3.14": "python:3.14", "3.13": "python:3.13", "3.12": "python:3.12"},
+				versions:       map[string]versionSpec{"3.14": {image: "python:3.14"}, "3.13": {image: "python:3.13"}, "3.12": {image: "python:3.12"}},
 				filename:       "main.py",
 				limits:         fillUnsetLangLimits(LangLimits{}),
 			},
