@@ -46,6 +46,8 @@ const (
 	buildDir   = "/build"
 )
 
+const compileFailExitCode = 100
+
 var (
 	ErrUnsupportedLanguage = errors.New("unsupported language")
 	ErrUnsupportedVersion  = errors.New("unsupported version")
@@ -530,8 +532,12 @@ func getHostConfig(spec RunSpec, ds dockerSpec, inputSrc string) *container.Host
 }
 
 func statusForExit(code int64) Status {
-	if code == 0 {
+	switch code {
+	case 0:
 		return StatusOK
+	case compileFailExitCode:
+		return StatusCompileError
+	default:
+		return StatusRuntimeError
 	}
-	return StatusRuntimeError
 }

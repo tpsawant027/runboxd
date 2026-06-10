@@ -15,6 +15,7 @@ const (
 	StatusTimeout       Status = "timeout"        // exceeded wall-clock limit, killed
 	StatusOOM           Status = "oom"            // exceeded memory limit, killed
 	StatusInternalError Status = "internal_error" // the sandbox itself failed
+	StatusCompileError  Status = "compile_error"  // failed to compile the code (if applicable)
 )
 
 // WorkspaceFile represents a file in the sandbox's workspace.
