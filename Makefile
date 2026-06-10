@@ -6,7 +6,7 @@ LOAD_DURATION ?= 15s
 
 COVER_PROFILE ?= cover.out
 
-.PHONY: build run test cover integration load lint clean gen-lock gen-images images
+.PHONY: build run test cover integration load lint clean gen-lock gen-images images adversarial
 build:
 	go build -o $(BINARY) ./cmd/runboxd
 run: build
@@ -26,6 +26,8 @@ images: gen-images
 	go run ./cmd/buildimages -dir ./images -registry ./language_registry.yml
 integration: images
 	go test -tags=integration -race ./...
+adversarial: images
+	go test -tags=adversarial -race -timeout 5m ./internal/sandbox -run TestAdv
 # Load test the running server (start it first, e.g. `make run`). Sweeps a few
 # request rates and reports latency + the status-code split per rate.
 # Override: make load LOAD_RATES="10 100" LOAD_DURATION=30s
