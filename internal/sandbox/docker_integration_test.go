@@ -68,11 +68,57 @@ func TestRun(t *testing.T) {
 			name: "python",
 			runSpec: RunSpec{
 				Language: "python",
-				Code:     "print(1+1)\n",
+				Code:     "print('hello from python')",
 			},
 			wantRunResult: RunResult{
 				Status:   StatusOK,
-				Stdout:   "2\n",
+				Stdout:   "hello from python\n",
+				ExitCode: 0,
+			},
+		},
+		{
+			name: "nodejs",
+			runSpec: RunSpec{
+				Language: "nodejs",
+				Code:     "console.log('hello from nodejs');",
+			},
+			wantRunResult: RunResult{
+				Status:   StatusOK,
+				Stdout:   "hello from nodejs\n",
+				ExitCode: 0,
+			},
+		},
+		{
+			name: "c",
+			runSpec: RunSpec{
+				Language: "c",
+				Code: `
+#include <stdio.h>
+int main(){ 
+	printf("hello from c\n");
+	return 0;
+}`,
+			},
+			wantRunResult: RunResult{
+				Status:   StatusOK,
+				Stdout:   "hello from c\n",
+				ExitCode: 0,
+			},
+		},
+		{
+			name: "java",
+			runSpec: RunSpec{
+				Language: "java",
+				Code: `
+public class Main {
+	public static void main(String[] args) {
+		System.out.println("hello from java");
+	}
+}`,
+			},
+			wantRunResult: RunResult{
+				Status:   StatusOK,
+				Stdout:   "hello from java\n",
 				ExitCode: 0,
 			},
 		},
@@ -148,6 +194,133 @@ func TestRunRuntimeError(t *testing.T) {
 				ExitCode: 1,
 			},
 			wantStderrContains: "Exception: oops",
+		},
+		{
+			name: "nodejs",
+			runSpec: RunSpec{
+				Language: "nodejs",
+				Code:     "throw new Error('oops');\n",
+			},
+			wantRunResult: RunResult{
+				Status:   StatusRuntimeError,
+				Stdout:   "",
+				ExitCode: 1,
+			},
+			wantStderrContains: "Error: oops",
+		},
+		{
+			name: "c",
+			runSpec: RunSpec{
+				Language: "c",
+				Code: `
+#include <stdio.h>
+int main(){
+	int *ptr = NULL;
+	*ptr = 42; // segfault
+	printf("FAIL: should have segfaulted\n");
+	return 0;
+}`,
+			},
+			wantRunResult: RunResult{
+				Status:   StatusRuntimeError,
+				Stdout:   "",
+				ExitCode: 139, // 128 + 11 (SIGSEGV)
+			},
+			wantStderrContains: "",
+		},
+		{
+			name: "java",
+			runSpec: RunSpec{
+				Language: "java",
+				Code: `
+public class Main {
+	public static void main(String[] args) {
+		throw new RuntimeException("oops");
+	}
+}`,
+			},
+			wantRunResult: RunResult{
+				Status:   StatusRuntimeError,
+				Stdout:   "",
+				ExitCode: 1,
+			},
+			wantStderrContains: "RuntimeException: oops",
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got, err := sb.Run(ctx, tc.runSpec)
+			if err != nil {
+				t.Fatalf("run: %v", err)
+			}
+			ensureRunResult(t, got, tc.wantRunResult, tc.wantStderrContains)
+		})
+	}
+}
+
+func TestRunCompileError(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
+	defer cancel()
+	sb := newTestSandbox(t)
+
+	cases := []struct {
+		name               string
+		runSpec            RunSpec
+		wantRunResult      RunResult
+		wantStderrContains string
+	}{
+		{
+			name: "c",
+			runSpec: RunSpec{
+				Language: "c",
+				Code: `
+int main() {
+	return 
+}`,
+			},
+			wantRunResult: RunResult{
+				Status:   StatusRuntimeError,
+				Stdout:   "",
+				ExitCode: 1,
+			},
+			wantStderrContains: "error:",
+		},
+		{
+			name: "java",
+			runSpec: RunSpec{
+				Language: "java",
+				Code: `
+public class Main {
+	public static void main(String[] args) {
+		System.out.println("Hello, World!")
+	}
+}`,
+			},
+			wantRunResult: RunResult{
+				Status:   StatusRuntimeError,
+				Stdout:   "",
+				ExitCode: 1,
+			},
+			wantStderrContains: "error:",
+		},
+		{
+			name: "java",
+			runSpec: RunSpec{
+				Language: "java",
+				Code: `
+public class Oops {
+	public static void main(String[] args) {
+		System.out.println("hello");
+	}
+}`,
+			},
+			wantRunResult: RunResult{
+				Status:   StatusRuntimeError,
+				Stdout:   "",
+				ExitCode: 1,
+			},
+			wantStderrContains: "should be declared in a file named Oops.java",
 		},
 	}
 
