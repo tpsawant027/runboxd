@@ -78,7 +78,9 @@ func main() {
 			Type:           entry.Spec.Type,
 			Filename:       entry.Spec.Filename,
 			DefaultVersion: entry.Spec.DefaultVersion,
+			Env:            entry.Spec.Env,
 			Limits:         entry.Spec.Limits,
+			CompileLimits:  entry.Spec.CompileLimits,
 			Versions:       make(map[string]registry.Version),
 			Artifact: registry.Artifact{
 				Name:             entry.Spec.Filename,
@@ -100,9 +102,10 @@ func main() {
 			}
 			createDockerfile(entry.Dir, entry.Spec.Name, versionName, force, version, entry.Spec, tmpl, wrapperContent)
 			languageRegistry.Languages[entry.Spec.Name].Versions[versionName] = registry.Version{
-				Name:   versionName,
-				Image:  versionEntryImageNamePrefix + entry.Spec.Name + ":" + versionName,
-				RunCmd: version.RunCmd,
+				Name:     versionName,
+				Image:    versionEntryImageNamePrefix + entry.Spec.Name + ":" + versionName,
+				RunCmd:   version.RunCmd,
+				BuildCmd: version.BuildCmd,
 			}
 		}
 	}

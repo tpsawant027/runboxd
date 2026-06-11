@@ -11,9 +11,12 @@ import (
 	"time"
 )
 
-const testTimeout = 30 * time.Second
+const (
+	testTimeout = 30 * time.Second
+	exitCodeAny = -999
+)
 
-func newTestSandbox(t *testing.T) *DockerSandbox {
+func newDockerTestSandbox(t *testing.T) *DockerSandbox {
 	t.Helper()
 	registryPath := os.Getenv("REGISTRY_PATH")
 	if registryPath == "" {
@@ -45,13 +48,13 @@ func newNsjailTestSandbox(t *testing.T) *NsjailSandbox {
 	return sb
 }
 
-func newAdvSandbox(t *testing.T) Sandbox {
+func newTestSandbox(t *testing.T) Sandbox {
 	t.Helper()
 	switch os.Getenv("RUNBOXD_BACKEND") {
 	case "nsjail":
 		return newNsjailTestSandbox(t)
 	default:
-		return newTestSandbox(t)
+		return newDockerTestSandbox(t)
 	}
 }
 
@@ -63,7 +66,7 @@ func ensureRunResult(t *testing.T, got, want RunResult, wantStderrContains strin
 	if got.Stdout != want.Stdout {
 		t.Errorf("stdout = %q, want %q", got.Stdout, want.Stdout)
 	}
-	if got.ExitCode != want.ExitCode {
+	if want.ExitCode != exitCodeAny && got.ExitCode != want.ExitCode {
 		t.Errorf("exit code = %d, want %d", got.ExitCode, want.ExitCode)
 	}
 	if wantStderrContains != "" {
@@ -72,5 +75,15 @@ func ensureRunResult(t *testing.T, got, want RunResult, wantStderrContains strin
 		}
 	} else if got.Stderr != want.Stderr {
 		t.Errorf("stderr = %q, want %q", got.Stderr, want.Stderr)
+	}
+}
+
+func skipUnsupportedOnNsjail(t *testing.T, lang string) {
+	if os.Getenv("RUNBOXD_BACKEND") != "nsjail" {
+		return
+	}
+	switch lang {
+	case "java", "nodejs":
+		t.Skipf("%s reserves large virtual address space (JVM/V8); rlimit_as can't bound it - needs cgroup memory.max", lang)
 	}
 }

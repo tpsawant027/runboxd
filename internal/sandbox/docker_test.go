@@ -481,7 +481,7 @@ func TestSetupWorkspace(t *testing.T) {
 
 		assertFile := func(rel, want string) {
 			t.Helper()
-			got, err := os.ReadFile(filepath.Join(tmpDir, rel))
+			got, err := os.ReadFile(filepath.Join(tmpDir, inputDir, rel))
 			if err != nil {
 				t.Fatalf("reading %s: %v", rel, err)
 			}

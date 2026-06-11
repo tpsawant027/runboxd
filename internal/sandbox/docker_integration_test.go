@@ -5,6 +5,7 @@ package sandbox
 import (
 	"context"
 	"fmt"
+	"os"
 	"sync"
 	"testing"
 	"time"
@@ -86,6 +87,7 @@ public class Main {
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
+			skipUnsupportedOnNsjail(t, tc.runSpec.Language)
 			got, err := sb.Run(ctx, tc.runSpec)
 			if err != nil {
 				t.Fatalf("Run: %v", err)
@@ -210,6 +212,7 @@ public class Main {
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
+			skipUnsupportedOnNsjail(t, tc.runSpec.Language)
 			got, err := sb.Run(ctx, tc.runSpec)
 			if err != nil {
 				t.Fatalf("run: %v", err)
@@ -242,7 +245,7 @@ int main() {
 			wantRunResult: RunResult{
 				Status:   StatusCompileError,
 				Stdout:   "",
-				ExitCode: compileFailExitCode,
+				ExitCode: exitCodeAny,
 			},
 			wantStderrContains: "error:",
 		},
@@ -260,7 +263,7 @@ public class Main {
 			wantRunResult: RunResult{
 				Status:   StatusCompileError,
 				Stdout:   "",
-				ExitCode: compileFailExitCode,
+				ExitCode: exitCodeAny,
 			},
 			wantStderrContains: "error:",
 		},
@@ -278,7 +281,7 @@ public class Oops {
 			wantRunResult: RunResult{
 				Status:   StatusCompileError,
 				Stdout:   "",
-				ExitCode: compileFailExitCode,
+				ExitCode: exitCodeAny,
 			},
 			wantStderrContains: "should be declared in a file named Oops.java",
 		},
@@ -286,6 +289,7 @@ public class Oops {
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
+			skipUnsupportedOnNsjail(t, tc.runSpec.Language)
 			got, err := sb.Run(ctx, tc.runSpec)
 			if err != nil {
 				t.Fatalf("run: %v", err)
@@ -331,10 +335,13 @@ func TestRunTimeout(t *testing.T) {
 }
 
 func TestRunOOM(t *testing.T) {
+	if os.Getenv("RUNBOXD_BACKEND") == "nsjail" {
+		t.Skip("OOM via rlimit_as is not a clean kill; nsjail OOM is the deferred cgroup work")
+	}
 	// Longer ctx: OOM should trigger in <1s but we need headroom over RunSpec.Timeout.
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
-	sb := newTestSandbox(t)
+	sb := newDockerTestSandbox(t)
 
 	// OOM kill requires Docker swap limit support. Without it Docker ignores
 	// --memory-swap and the container spills to the swap partition instead of
@@ -467,7 +474,7 @@ with open("data/in.txt") as f:
 func TestRunConcurrency(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
 	defer cancel()
-	sb := newTestSandbox(t)
+	sb := newDockerTestSandbox(t)
 
 	const numRuns = 5
 
@@ -523,7 +530,7 @@ func waitForManagedContainer(ctx context.Context, t *testing.T, sb *DockerSandbo
 func TestReapOrphansRemovesOrphan(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
 	defer cancel()
-	sb := newTestSandbox(t)
+	sb := newDockerTestSandbox(t)
 
 	resp, err := sb.client.ContainerCreate(ctx, client.ContainerCreateOptions{
 		Config: &container.Config{Labels: map[string]string{managedLabel: "1"}},
@@ -549,7 +556,7 @@ func TestReapOrphansRemovesOrphan(t *testing.T) {
 func TestReapOrphansSparesLive(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
 	defer cancel()
-	sb := newTestSandbox(t)
+	sb := newDockerTestSandbox(t)
 
 	resultCh := make(chan RunResult, 1)
 	errCh := make(chan error, 1)

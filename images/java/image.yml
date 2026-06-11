@@ -3,14 +3,20 @@ type: compiled
 filename: Main.java
 default_version: "21"
 exec_cmd: java # metadata only
+env:
+  PATH: "/opt/java/openjdk/bin:/usr/local/bin:/usr/bin:/bin"
 limits:
   min_memory_mib: 128
   max_memory_mib: 512
   min_timeout_seconds: 1
   max_timeout_seconds: 10
   max_pids: 64
+compile_limits:
+  memory_mib: 512
+  timeout_seconds: 10
+  max_pids: 64
 versions:
   "21":
     base_image: eclipse-temurin:21-jdk-ubi10-minimal
-    build_cmd: ["javac", "/sandbox/Main.java"]
-    run_cmd: ["java", "-cp", "/sandbox", "Main"]
+    build_cmd: ["javac", "-d", "/build", "/sandbox/Main.java"]
+    run_cmd: ["java", "-cp", "/build", "Main"]

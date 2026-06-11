@@ -6,7 +6,7 @@ LOAD_DURATION ?= 15s
 
 COVER_PROFILE ?= cover.out
 
-.PHONY: build run test cover integration load lint clean gen-lock gen-images images rootfs adversarial adversarial-nsjail
+.PHONY: build run test cover integration integration-nsjail load lint clean gen-lock gen-images images rootfs adversarial adversarial-nsjail
 build:
 	go build -o $(BINARY) ./cmd/runboxd
 run: build
@@ -26,9 +26,12 @@ images: gen-images
 	go run ./cmd/buildimages -dir ./images -registry ./language_registry.yml
 # Export each built image to a flat rootfs tree (for the nsjail backend's --chroot).
 rootfs: images
+	-chmod -R u+w _rootfs 2>/dev/null
 	go run ./cmd/exportrootfs -registry ./language_registry.yml -rootfs ./_rootfs
 integration: images
-	go test -tags=integration -race ./...
+	go test -tags=integration -race -timeout 5m ./...
+integration-nsjail: rootfs
+	RUNBOXD_BACKEND=nsjail go test -tags=integration -race -timeout 5m ./internal/sandbox -run TestRun
 adversarial: images
 	go test -tags=adversarial -race -timeout 5m ./internal/sandbox -run TestAdv
 # Same containment suite against the nsjail backend (its acceptance gate). Host-native nsjail + exported rootfs.

@@ -26,7 +26,7 @@ func runHostile(t *testing.T, sb Sandbox, code string) RunResult {
 }
 
 func TestAdvNetworkBlocked(t *testing.T) {
-	sb := newAdvSandbox(t)
+	sb := newTestSandbox(t)
 	code := `
 import socket
 socket.create_connection(("1.1.1.1",53),2)
@@ -44,7 +44,7 @@ socket.create_connection(("1.1.1.1",53),2)
 }
 
 func TestAdvForkBomb(t *testing.T) {
-	sb := newAdvSandbox(t)
+	sb := newTestSandbox(t)
 
 	spec, err := sb.LangSpec("python", "")
 	if err != nil {
@@ -81,7 +81,7 @@ sys.exit(0 if hit else 1)
 }
 
 func TestAdvNoExec(t *testing.T) {
-	sb := newAdvSandbox(t)
+	sb := newTestSandbox(t)
 	code := `
 import os
 with open("hello.sh", "w") as f:
@@ -99,7 +99,7 @@ os.execv("./hello.sh", ["hello.sh"])
 }
 
 func TestAdvReadonlyRootfs(t *testing.T) {
-	sb := newAdvSandbox(t)
+	sb := newTestSandbox(t)
 	code := `
 with open("/etc/script.sh", "w") as f:
     f.write("#!/bin/sh\necho hello\n")
@@ -117,7 +117,7 @@ with open("/etc/script.sh", "w") as f:
 }
 
 func TestAdvCapsDropped(t *testing.T) {
-	sb := newAdvSandbox(t)
+	sb := newTestSandbox(t)
 	code := `
 import socket
 socket.socket(socket.AF_INET, socket.SOCK_RAW, socket.IPPROTO_ICMP)  # raw socket requires CAP_NET_RAW
@@ -132,7 +132,7 @@ socket.socket(socket.AF_INET, socket.SOCK_RAW, socket.IPPROTO_ICMP)  # raw socke
 }
 
 func TestAdvNoNewPrivileges(t *testing.T) {
-	sb := newAdvSandbox(t)
+	sb := newTestSandbox(t)
 	code := `
 with open("/proc/self/status") as f:
     print(f.read())
@@ -147,7 +147,7 @@ with open("/proc/self/status") as f:
 }
 
 func TestAdvOutputFlood(t *testing.T) {
-	sb := newAdvSandbox(t)
+	sb := newTestSandbox(t)
 	code := `
 buf = b"x" * (8 * 1024 * 1024)  # 8 MiB
 print(buf.decode())
@@ -162,7 +162,7 @@ print(buf.decode())
 }
 
 func TestAdvDiskFill(t *testing.T) {
-	sb := newAdvSandbox(t)
+	sb := newTestSandbox(t)
 	code := `
 buf = b"x" * (1024 * 1024)  		# 1 MiB, allocated once
 with open("/sandbox/big", "wb") as f:
@@ -182,7 +182,7 @@ with open("/sandbox/big", "wb") as f:
 }
 
 func TestAdvNoDockerSocket(t *testing.T) {
-	sb := newAdvSandbox(t)
+	sb := newTestSandbox(t)
 	code := "import os;print(os.path.exists('/var/run/docker.sock'))"
 	got := runHostile(t, sb, code)
 	if got.Status != StatusOK {

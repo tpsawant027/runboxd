@@ -64,6 +64,12 @@ type LangLimits struct {
 	MaxPids                        int64
 }
 
+type LangCompileLimits struct {
+	MemoryBytes int64
+	Timeout     time.Duration
+	MaxPids     int64
+}
+
 type LangSpec struct {
 	Filename string
 	Limits   LangLimits

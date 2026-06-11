@@ -14,19 +14,22 @@ type Registry struct {
 }
 
 type Language struct {
-	Name           string             `yaml:"name"`
-	Type           string             `yaml:"type"`
-	Filename       string             `yaml:"filename"`
-	DefaultVersion string             `yaml:"default_version"`
-	Limits         imagespec.Limits   `yaml:"limits"`
-	Versions       map[string]Version `yaml:"versions"`
-	Artifact       Artifact           `yaml:"artifact"`
+	Name           string                  `yaml:"name"`
+	Type           string                  `yaml:"type"`
+	Filename       string                  `yaml:"filename"`
+	DefaultVersion string                  `yaml:"default_version"`
+	Env            map[string]string       `yaml:"env,omitempty"`
+	Limits         imagespec.Limits        `yaml:"limits"`
+	CompileLimits  imagespec.CompileLimits `yaml:"compile_limits,omitempty"`
+	Versions       map[string]Version      `yaml:"versions"`
+	Artifact       Artifact                `yaml:"artifact"`
 }
 
 type Version struct {
-	Name   string   `yaml:"name"`
-	Image  string   `yaml:"image"`
-	RunCmd []string `yaml:"run_cmd"`
+	Name     string   `yaml:"name"`
+	Image    string   `yaml:"image"`
+	RunCmd   []string `yaml:"run_cmd"`
+	BuildCmd []string `yaml:"build_cmd"`
 }
 
 type Artifact struct {

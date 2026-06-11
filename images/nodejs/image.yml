@@ -3,6 +3,8 @@ type: interpreted
 filename: main.js
 default_version: "26"
 exec_cmd: node
+env:
+  PATH: "/usr/local/bin:/usr/bin:/bin"
 limits:
   min_memory_mib: 64
   max_memory_mib: 128

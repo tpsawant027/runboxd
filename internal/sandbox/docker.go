@@ -69,6 +69,10 @@ func (lw *limitWriter) Write(p []byte) (int, error) {
 	return len(p), nil
 }
 
+func (lw *limitWriter) String() string {
+	return lw.buf.String()
+}
+
 type dockerSpec struct {
 	langType string
 	filename string
@@ -77,16 +81,19 @@ type dockerSpec struct {
 }
 
 type versionSpec struct {
-	image  string
-	runCmd []string
+	image    string
+	runCmd   []string
+	buildCmd []string
 }
 
 type langEntry struct {
 	defaultVersion string
 	langType       string
 	filename       string
+	env            map[string]string
 	limits         LangLimits
-	versions       map[string]versionSpec // version -> image + run command
+	compileLimits  LangCompileLimits
+	versions       map[string]versionSpec // version -> image + run command + build command (if compiled)
 }
 
 type DockerSandbox struct {
@@ -140,11 +147,12 @@ func NewDockerSandbox(registryPath string, logger *slog.Logger) (*DockerSandbox,
 				defaultVersion: defaultVersion.Name,
 				langType:       entry.Type,
 				filename:       entry.Filename,
+				env:            entry.Env,
 				limits:         limits,
 				versions:       make(map[string]versionSpec, len(entry.Versions)),
 			}
 			for _, version := range entry.Versions {
-				spec.versions[version.Name] = versionSpec{image: version.Image, runCmd: version.RunCmd}
+				spec.versions[version.Name] = versionSpec{image: version.Image, runCmd: version.RunCmd, buildCmd: version.BuildCmd}
 				if err := ensureImage(gctx, cli, version.Image); err != nil {
 					return fmt.Errorf("failed to ensure image %q for language %q version %q: %w", version.Image, entry.Name, version.Name, err)
 				}
@@ -188,7 +196,7 @@ func (s *DockerSandbox) Run(ctx context.Context, spec RunSpec) (RunResult, error
 		cfg.OpenStdin = true
 		cfg.StdinOnce = true
 	}
-	hostCfg := getHostConfig(spec, ds, tmpDir)
+	hostCfg := getHostConfig(spec, ds, filepath.Join(tmpDir, inputDir))
 
 	// Detach the create call from the request ctx: if the client disconnects mid-ContainerCreate,
 	// the request ctx cancels, the client call returns an error WITHOUT the container ID, and the
@@ -285,8 +293,8 @@ func (s *DockerSandbox) Run(ctx context.Context, spec RunSpec) (RunResult, error
 	}
 
 	return RunResult{
-		Stdout:   stdoutW.buf.String(),
-		Stderr:   stderrW.buf.String(),
+		Stdout:   stdoutW.String(),
+		Stderr:   stderrW.String(),
 		ExitCode: int(statusCode),
 		Status:   statusForExit(statusCode),
 		Duration: time.Since(startedAt),
@@ -479,11 +487,15 @@ func setupWorkspace(tmpDirPattern, code, codeFilename string, workspaceFiles []W
 	if err := os.Chmod(tmpDir, 0o755); err != nil {
 		return tmpDir, fmt.Errorf("failed to chmod temp dir: %w", err)
 	}
+	inputRoot := filepath.Join(tmpDir, inputDir)
+	if err := os.MkdirAll(inputRoot, 0o755); err != nil {
+		return tmpDir, fmt.Errorf("failed to create input dir: %w", err)
+	}
 	for _, wf := range workspaceFiles {
 		if !filepath.IsLocal(wf.Path) {
 			return tmpDir, fmt.Errorf("invalid workspace file path: %s", wf.Path)
 		}
-		dst := filepath.Join(tmpDir, wf.Path)
+		dst := filepath.Join(inputRoot, wf.Path)
 		if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
 			return tmpDir, fmt.Errorf("failed to create workspace mkdir: %w", err)
 		}
@@ -491,7 +503,7 @@ func setupWorkspace(tmpDirPattern, code, codeFilename string, workspaceFiles []W
 			return tmpDir, fmt.Errorf("failed to write workspace file: %w", err)
 		}
 	}
-	codePath := filepath.Join(tmpDir, codeFilename)
+	codePath := filepath.Join(inputRoot, codeFilename)
 	if err := os.WriteFile(codePath, []byte(code), 0o644); err != nil {
 		return tmpDir, fmt.Errorf("failed to write code file: %w", err)
 	}
