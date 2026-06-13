@@ -40,7 +40,7 @@ func run() error {
 
 	if cfg.SandboxBackend == "nsjail" {
 		var err error
-		sb, err = sandbox.NewNsjailSandbox(cfg.RegistryPath, cfg.NsjailPath, cfg.RootfsPath, logger)
+		sb, err = sandbox.NewNsjailSandbox(cfg.RegistryPath, cfg.NsjailPath, cfg.RootfsPath, cfg.CgroupV2Mount, logger)
 		if err != nil {
 			return err
 		}

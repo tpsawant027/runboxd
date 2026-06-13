@@ -31,12 +31,13 @@ rootfs: images
 integration: images
 	go test -tags=integration -race -timeout 5m ./...
 integration-nsjail: rootfs
-	RUNBOXD_BACKEND=nsjail go test -tags=integration -race -timeout 5m ./internal/sandbox -run TestRun
+	go test -c -race -tags=integration -o /tmp/runboxd-sandbox.test ./internal/sandbox
+	cd internal/sandbox && systemd-run --user --scope -p Delegate=yes env SANDBOX_BACKEND=nsjail /tmp/runboxd-sandbox.test -test.run TestRun -test.timeout 5m
 adversarial: images
 	go test -tags=adversarial -race -timeout 5m ./internal/sandbox -run TestAdv
 # Same containment suite against the nsjail backend (its acceptance gate). Host-native nsjail + exported rootfs.
 adversarial-nsjail: rootfs
-	RUNBOXD_BACKEND=nsjail go test -tags=adversarial -race -timeout 5m ./internal/sandbox -run TestAdv
+	SANDBOX_BACKEND=nsjail go test -tags=adversarial -race -timeout 5m ./internal/sandbox -run TestAdv
 # Load test the running server (start it first, e.g. `make run`). Sweeps a few
 # request rates and reports latency + the status-code split per rate.
 # Override: make load LOAD_RATES="10 100" LOAD_DURATION=30s

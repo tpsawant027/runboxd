@@ -517,6 +517,13 @@ func effectiveTimeout(reqTimeout time.Duration, limits LangLimits) time.Duration
 	return max(limits.MinTimeout, min(reqTimeout, limits.MaxTimeout))
 }
 
+func effectiveMemoryBytes(reqBytes int64, limits LangLimits) int64 {
+	if reqBytes <= 0 {
+		return limits.MaxMemoryBytes
+	}
+	return max(limits.MinMemoryBytes, min(reqBytes, limits.MaxMemoryBytes))
+}
+
 func getHostConfig(spec RunSpec, ds dockerSpec, inputSrc string) *container.HostConfig {
 	hc := &container.HostConfig{
 		Resources: container.Resources{
@@ -544,10 +551,7 @@ func getHostConfig(spec RunSpec, ds dockerSpec, inputSrc string) *container.Host
 			Config: map[string]string{"max-size": MaxLogConfigFileSize, "max-file": MaxLogConfigFileCount},
 		},
 	}
-	hc.Memory = ds.limits.MaxMemoryBytes
-	if spec.MemoryBytes > 0 {
-		hc.Memory = max(ds.limits.MinMemoryBytes, min(spec.MemoryBytes, ds.limits.MaxMemoryBytes))
-	}
+	hc.Memory = effectiveMemoryBytes(spec.MemoryBytes, ds.limits)
 	hc.MemorySwap = hc.Memory
 	if ds.langType == "compiled" {
 		hc.Tmpfs[buildDir] = "size=10m,exec,mode=1777,nosuid,nodev"

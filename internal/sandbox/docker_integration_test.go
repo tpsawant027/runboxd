@@ -13,6 +13,7 @@ import (
 	"github.com/containerd/errdefs"
 	"github.com/moby/moby/api/types/container"
 	"github.com/moby/moby/client"
+	"github.com/tpsawant027/runboxd/internal/config"
 )
 
 func TestRun(t *testing.T) {
@@ -335,20 +336,29 @@ func TestRunTimeout(t *testing.T) {
 }
 
 func TestRunOOM(t *testing.T) {
-	if os.Getenv("RUNBOXD_BACKEND") == "nsjail" {
-		t.Skip("OOM via rlimit_as is not a clean kill; nsjail OOM is the deferred cgroup work")
-	}
 	// Longer ctx: OOM should trigger in <1s but we need headroom over RunSpec.Timeout.
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
-	sb := newDockerTestSandbox(t)
 
-	// OOM kill requires Docker swap limit support. Without it Docker ignores
-	// --memory-swap and the container spills to the swap partition instead of
-	// being killed. Ask the daemon directly rather than guessing from cgroup paths.
-	daemonInfo, err := sb.client.Info(ctx, client.InfoOptions{})
-	if err != nil || !daemonInfo.Info.SwapLimit {
-		t.Skip("docker swap limits not supported on this system; skipping OOM test")
+	var sb Sandbox
+	switch os.Getenv(config.SandboxBackendEnv) {
+	case "nsjail":
+		// cgroup memory.max gives a clean OOM-kill; the rlimit_as fallback does not
+		// (no clean 137), so the test only makes sense when cgroups are delegated.
+		if !cgroupsActive() {
+			t.Skip("nsjail cgroups unavailable (no delegation); OOM needs cgroup memory.max")
+		}
+		sb = newNsjailTestSandbox(t)
+	default:
+		ds := newDockerTestSandbox(t)
+		// OOM kill requires Docker swap limit support. Without it Docker ignores
+		// --memory-swap and the container spills to the swap partition instead of
+		// being killed. Ask the daemon directly rather than guessing from cgroup paths.
+		daemonInfo, err := ds.client.Info(ctx, client.InfoOptions{})
+		if err != nil || !daemonInfo.Info.SwapLimit {
+			t.Skip("docker swap limits not supported on this system; skipping OOM test")
+		}
+		sb = ds
 	}
 
 	cases := []struct {

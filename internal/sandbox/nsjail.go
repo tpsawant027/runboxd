@@ -35,7 +35,11 @@ const (
 
 	nsjailKillGrace = 2 * time.Second
 
-	nsjailMaxFsizeMB = 16
+	nsjailRunFsizeMiB     = 16
+	nsjailRunNofile       = 64
+	nsjailCompileFsizeMiB = 1024
+	nsjailCompileNofile   = 512
+	nsjailCPUMsPerSec     = 500
 )
 
 var nsjailCfgTmpl = template.Must(
@@ -47,10 +51,19 @@ mount_proc: true
 uidmap { inside_id: {{.UID | quote}} outside_id: "" }
 gidmap { inside_id: {{.GID | quote}} outside_id: "" }
 time_limit: {{.TimeoutSec}}
-rlimit_as: {{.MemMB}}
+{{if .CgroupMount}}use_cgroupv2: true
+cgroupv2_mount: {{.CgroupMount | quote}}
+cgroup_mem_max: {{.CgroupMemMax}}
+cgroup_mem_swap_max: 0
+cgroup_pids_max: {{.CgroupPidsMax}}
+cgroup_cpu_ms_per_sec: {{.CgroupCPUMsPerSec}}
+rlimit_as_type: INF
+{{else}}rlimit_as: {{.MemMB}}
 rlimit_nproc: {{.MaxPids}}
 rlimit_nproc_type: VALUE
+{{end}}
 rlimit_fsize: {{.FsizeMB}}
+rlimit_nofile: {{.Nofile}}
 log_file: {{.LogPath | quote}}
 {{range $k, $v := .Env}}envar: {{printf "%s=%s" $k $v | quote}}
 {{end}}
@@ -65,20 +78,25 @@ exec_bin { path: "/wrapper.sh"{{range .Cmd}} arg: {{. | quote}}{{end}} }
 )
 
 type nsjailCfgData struct {
-	UID         string
-	GID         string
-	TimeoutSec  int
-	MemMB       int64
-	MaxPids     int64
-	FsizeMB     int
-	LogPath     string
-	Rootfs      string
-	InputDir    string
-	BuildDir    string
-	SandboxOpts string
-	TmpOpts     string
-	Cmd         []string
-	Env         map[string]string
+	UID               string
+	GID               string
+	TimeoutSec        int
+	MemMB             int64
+	MaxPids           int64
+	FsizeMB           int
+	Nofile            int
+	LogPath           string
+	Rootfs            string
+	InputDir          string
+	BuildDir          string
+	SandboxOpts       string
+	TmpOpts           string
+	CgroupMount       string
+	CgroupMemMax      int64
+	CgroupPidsMax     int64
+	CgroupCPUMsPerSec int
+	Cmd               []string
+	Env               map[string]string
 }
 
 type nsjailSpec struct {
@@ -93,10 +111,11 @@ type nsjailSpec struct {
 }
 
 type NsjailSandbox struct {
-	nsjailPath string
-	rootfsRoot string
-	specs      map[string]langEntry
-	logger     *slog.Logger
+	nsjailPath  string
+	rootfsRoot  string
+	specs       map[string]langEntry
+	cgroupMount string
+	logger      *slog.Logger
 }
 
 var (
@@ -105,13 +124,20 @@ var (
 	_ Pinger   = (*NsjailSandbox)(nil)
 )
 
-func NewNsjailSandbox(registryPath, nsjailPath string, rootfsRoot string, logger *slog.Logger) (*NsjailSandbox, error) {
+func NewNsjailSandbox(registryPath, nsjailPath, rootfsRoot, cgroupOverride string, logger *slog.Logger) (*NsjailSandbox, error) {
 	if nsjailPath == "" {
 		var err error
 		nsjailPath, err = exec.LookPath("nsjail")
 		if err != nil {
 			return nil, fmt.Errorf("nsjail binary not found in PATH: %w", err)
 		}
+	}
+
+	cgroupMount, reason := delegatedCgroupMount(cgroupOverride)
+	if cgroupMount == "" {
+		logger.Warn("cgroup v2 limits unavailable; falling back to rlimit_as", "reason", reason)
+	} else {
+		logger.Info("cgroup v2 limits active", "mount", cgroupMount)
 	}
 
 	// nsjail resolves bind-mount source paths at mount time, after it has set up its
@@ -172,10 +198,11 @@ func NewNsjailSandbox(registryPath, nsjailPath string, rootfsRoot string, logger
 	}
 
 	return &NsjailSandbox{
-		nsjailPath: nsjailPath,
-		rootfsRoot: rootfsRoot,
-		specs:      specs,
-		logger:     logger,
+		nsjailPath:  nsjailPath,
+		rootfsRoot:  rootfsRoot,
+		specs:       specs,
+		cgroupMount: cgroupMount,
+		logger:      logger,
 	}, nil
 }
 
@@ -199,7 +226,7 @@ func (s *NsjailSandbox) Run(ctx context.Context, spec RunSpec) (RunResult, error
 		}
 
 		buildTimeout := ns.compileLimits.Timeout
-		buildCfgPath, err := writeNsjailConfig(nsjailBuildCfgName, ns, tmpDir, buildTimeout, "build")
+		buildCfgPath, err := writeNsjailConfig(ns, buildTimeout, ns.compileLimits.MemoryBytes, s.cgroupMount, nsjailBuildCfgName, tmpDir, "build")
 		if err != nil {
 			return runResInternalErr, fmt.Errorf("failed to write nsjail build config: %w", err)
 		}
@@ -231,11 +258,12 @@ func (s *NsjailSandbox) Run(ctx context.Context, spec RunSpec) (RunResult, error
 	}
 
 	runTimeout := effectiveTimeout(spec.Timeout, ns.limits)
+	runMem := effectiveMemoryBytes(spec.MemoryBytes, ns.limits)
 
 	stdoutBuf := &limitWriter{n: MaxOutputBytes}
 	stderrBuf := &limitWriter{n: MaxOutputBytes}
 
-	runCfgPath, err := writeNsjailConfig(nsjailRunCfgName, ns, tmpDir, runTimeout, "run")
+	runCfgPath, err := writeNsjailConfig(ns, runTimeout, runMem, s.cgroupMount, nsjailRunCfgName, tmpDir, "run")
 	if err != nil {
 		return runResInternalErr, fmt.Errorf("failed to write nsjail run config: %w", err)
 	}
@@ -270,11 +298,16 @@ func (s *NsjailSandbox) Run(ctx context.Context, spec RunSpec) (RunResult, error
 		exitCode = -1
 	}
 
+	status := statusForNsjailExit(exitCode, timedOut)
+	if status == StatusOOM {
+		exitCode = -1
+	}
+
 	return RunResult{
 		Stdout:   stdoutBuf.String(),
 		Stderr:   stderrBuf.String(),
 		ExitCode: exitCode,
-		Status:   statusForNsjailExit(exitCode, timedOut),
+		Status:   status,
 		Duration: duration,
 	}, nil
 }
@@ -303,7 +336,7 @@ func (s *NsjailSandbox) lookupSpec(lang, version string) (nsjailSpec, error) {
 	}, nil
 }
 
-func writeNsjailConfig(cfgFilename string, ns nsjailSpec, tmpDir string, timeout time.Duration, stage string) (string, error) {
+func writeNsjailConfig(ns nsjailSpec, timeout time.Duration, memBytes int64, cgroupMount, cfgFilename, tmpDir, stage string) (string, error) {
 	cfgPath := filepath.Join(tmpDir, cfgFilename)
 	cfgFile, err := os.Create(cfgPath)
 	if err != nil {
@@ -312,19 +345,24 @@ func writeNsjailConfig(cfgFilename string, ns nsjailSpec, tmpDir string, timeout
 	defer cfgFile.Close()
 
 	cfgData := nsjailCfgData{
-		UID:         nsjailNobodyUID,
-		GID:         nsjailNobodyGID,
-		TimeoutSec:  int(math.Ceil(timeout.Seconds())),
-		MemMB:       ns.limits.MaxMemoryBytes / (1024 * 1024),
-		MaxPids:     ns.limits.MaxPids,
-		FsizeMB:     nsjailMaxFsizeMB,
-		LogPath:     filepath.Join(tmpDir, nsjailRunLogName),
-		Rootfs:      ns.rootfs,
-		InputDir:    filepath.Join(tmpDir, inputDir),
-		SandboxOpts: fmt.Sprintf("size=%d", sandboxTmpfsSize),
-		TmpOpts:     fmt.Sprintf("size=%d", tmpTmpfsSize),
-		Cmd:         ns.runCmd,
-		Env:         ns.env,
+		UID:               nsjailNobodyUID,
+		GID:               nsjailNobodyGID,
+		TimeoutSec:        int(math.Ceil(timeout.Seconds())),
+		MemMB:             memBytes / (1024 * 1024),
+		MaxPids:           ns.limits.MaxPids,
+		FsizeMB:           nsjailRunFsizeMiB,
+		Nofile:            nsjailRunNofile,
+		LogPath:           filepath.Join(tmpDir, nsjailRunLogName),
+		Rootfs:            ns.rootfs,
+		InputDir:          filepath.Join(tmpDir, inputDir),
+		SandboxOpts:       fmt.Sprintf("size=%d", sandboxTmpfsSize),
+		TmpOpts:           fmt.Sprintf("size=%d", tmpTmpfsSize),
+		CgroupMount:       cgroupMount,
+		CgroupMemMax:      memBytes,
+		CgroupPidsMax:     ns.limits.MaxPids,
+		CgroupCPUMsPerSec: nsjailCPUMsPerSec,
+		Cmd:               ns.runCmd,
+		Env:               ns.env,
 	}
 
 	if ns.langType == "compiled" {
@@ -333,17 +371,47 @@ func writeNsjailConfig(cfgFilename string, ns nsjailSpec, tmpDir string, timeout
 
 	if stage == "build" {
 		cfgData.TimeoutSec = int(math.Ceil(ns.compileLimits.Timeout.Seconds()))
-		cfgData.MemMB = ns.compileLimits.MemoryBytes / (1024 * 1024)
 		cfgData.MaxPids = ns.compileLimits.MaxPids
+		cfgData.CgroupPidsMax = ns.compileLimits.MaxPids
 		cfgData.LogPath = filepath.Join(tmpDir, nsjailBuildLogName)
+		cfgData.FsizeMB = nsjailCompileFsizeMiB
+		cfgData.Nofile = nsjailCompileNofile
 		cfgData.Cmd = ns.buildCmd
 	}
+
+	cfgData.Cmd = injectJVMFlags(cfgData.Cmd, memBytes)
 
 	if err := nsjailCfgTmpl.Execute(cfgFile, cfgData); err != nil {
 		return "", fmt.Errorf("rendering nsjail config template: %w", err)
 	}
 
 	return cfgPath, nil
+}
+
+func injectJVMFlags(cmd []string, memBytes int64) []string {
+	if len(cmd) == 0 {
+		return cmd
+	}
+	var p string
+	switch filepath.Base(cmd[0]) {
+	case "java":
+		p = ""
+	case "javac":
+		p = "-J"
+	default:
+		return cmd
+	}
+	flags := []string{
+		p + fmt.Sprintf("-XX:MaxRAM=%d", memBytes),
+		p + "-XX:+UseSerialGC",
+		p + "-XX:ActiveProcessorCount=1",
+		p + "-XX:CICompilerCount=2",
+	}
+	newCmd := make([]string, 0, len(cmd)+len(flags))
+	newCmd = append(newCmd, cmd[0])
+	newCmd = append(newCmd, flags...)
+	newCmd = append(newCmd, cmd[1:]...)
+	return newCmd
 }
 
 func resolveLangCompileLimits(l imagespec.CompileLimits) LangCompileLimits {
@@ -373,6 +441,9 @@ func statusForNsjailExit(code int, timedOut bool) Status {
 	}
 	if code == 0 {
 		return StatusOK
+	}
+	if code == 137 { // 137 = 128+9 (SIGKILL); since we already check for timeout, this is very likely an OOM kill
+		return StatusOOM
 	}
 	return StatusRuntimeError
 }

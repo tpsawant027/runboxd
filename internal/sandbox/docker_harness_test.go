@@ -9,6 +9,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/tpsawant027/runboxd/internal/config"
 )
 
 const (
@@ -40,7 +42,7 @@ func newNsjailTestSandbox(t *testing.T) *NsjailSandbox {
 	if rootfsRoot == "" {
 		rootfsRoot = "../../_rootfs"
 	}
-	sb, err := NewNsjailSandbox(registryPath, os.Getenv("NSJAIL_PATH"), rootfsRoot, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	sb, err := NewNsjailSandbox(registryPath, os.Getenv("NSJAIL_PATH"), rootfsRoot, "", slog.New(slog.NewTextHandler(io.Discard, nil)))
 	if err != nil {
 		t.Skip("nsjail unavailable:", err)
 	}
@@ -50,7 +52,7 @@ func newNsjailTestSandbox(t *testing.T) *NsjailSandbox {
 
 func newTestSandbox(t *testing.T) Sandbox {
 	t.Helper()
-	switch os.Getenv("RUNBOXD_BACKEND") {
+	switch os.Getenv(config.SandboxBackendEnv) {
 	case "nsjail":
 		return newNsjailTestSandbox(t)
 	default:
@@ -79,11 +81,14 @@ func ensureRunResult(t *testing.T, got, want RunResult, wantStderrContains strin
 }
 
 func skipUnsupportedOnNsjail(t *testing.T, lang string) {
-	if os.Getenv("RUNBOXD_BACKEND") != "nsjail" {
+	if os.Getenv(config.SandboxBackendEnv) != "nsjail" {
+		return
+	}
+	if cgroupsActive() {
 		return
 	}
 	switch lang {
 	case "java", "nodejs":
-		t.Skipf("%s reserves large virtual address space (JVM/V8); rlimit_as can't bound it - needs cgroup memory.max", lang)
+		t.Skipf("%s reserves large virtual AS; rlimit_as can't bound it — needs cgroup memory.max", lang)
 	}
 }

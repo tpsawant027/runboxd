@@ -14,17 +14,30 @@ type Config struct {
 	SandboxBackend string
 	NsjailPath     string
 	RootfsPath     string
+	CgroupV2Mount  string
 }
+
+const (
+	PortEnv           = "PORT"
+	RegistryPathEnv   = "REGISTRY_PATH"
+	WorkerPoolSizeEnv = "WORKER_POOL_SIZE"
+	MaxQueueSizeEnv   = "MAX_QUEUE_SIZE"
+	SandboxBackendEnv = "SANDBOX_BACKEND"
+	NsjailPathEnv     = "NSJAIL_PATH"
+	RootfsPathEnv     = "ROOTFS_PATH"
+	CgroupV2MountEnv  = "CGROUP_V2_MOUNT"
+)
 
 func Load() *Config {
 	return &Config{
-		Port:           getEnvOrDefault("PORT", "8080"),
-		RegistryPath:   getEnvOrDefault("REGISTRY_PATH", "./language_registry.yml"),
-		WorkerPoolSize: parseIntEnvOrDefault("WORKER_POOL_SIZE", runtime.NumCPU(), 1),
-		MaxQueueSize:   parseIntEnvOrDefault("MAX_QUEUE_SIZE", runtime.NumCPU(), 0),
-		SandboxBackend: getEnvOrDefault("SANDBOX_BACKEND", "docker"),
-		NsjailPath:     getEnvOrDefault("NSJAIL_PATH", ""),
-		RootfsPath:     getEnvOrDefault("ROOTFS_PATH", "./_rootfs"),
+		Port:           getEnvOrDefault(PortEnv, "8080"),
+		RegistryPath:   getEnvOrDefault(RegistryPathEnv, "./language_registry.yml"),
+		WorkerPoolSize: parseIntEnvOrDefault(WorkerPoolSizeEnv, runtime.NumCPU(), 1),
+		MaxQueueSize:   parseIntEnvOrDefault(MaxQueueSizeEnv, runtime.NumCPU(), 0),
+		SandboxBackend: getEnvOrDefault(SandboxBackendEnv, "docker"),
+		NsjailPath:     getEnvOrDefault(NsjailPathEnv, ""),
+		RootfsPath:     getEnvOrDefault(RootfsPathEnv, "./_rootfs"),
+		CgroupV2Mount:  getEnvOrDefault(CgroupV2MountEnv, ""),
 	}
 }
 
