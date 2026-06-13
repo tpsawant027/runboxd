@@ -1,19 +1,34 @@
-package main
+package cmd
 
 import (
-	_ "embed"
 	"encoding/json"
-	"flag"
+	"fmt"
 	"log"
 	"os"
 	"path/filepath"
 	"strings"
 	"text/template"
 
+	"github.com/spf13/cobra"
 	"github.com/tpsawant027/runboxd/internal/imagespec"
 	"github.com/tpsawant027/runboxd/internal/registry"
 	"go.yaml.in/yaml/v4"
 )
+
+var genImagesCmd = &cobra.Command{
+	Use:   "gen-images",
+	Short: "Generate Dockerfiles for all images",
+	RunE: func(cmd *cobra.Command, args []string) error {
+		return runGenImages(cmd, args)
+	},
+}
+
+func init() {
+	rootCmd.AddCommand(genImagesCmd)
+
+	genImagesCmd.Flags().String("lockfile", "", "path to the lockfile to read base image digests from")
+	genImagesCmd.Flags().Bool("force", false, "force overwrite existing Dockerfiles")
+}
 
 type dockerfileData struct {
 	BaseImage  string
@@ -24,22 +39,31 @@ type dockerfileData struct {
 
 const versionEntryImageNamePrefix = "runboxd-"
 
-//go:embed templates/dockerfile.tmpl
-var dockerfileTemplate string
+var dockerfileTemplate = template.Must(template.New("dockerfile").Parse(`FROM {{.BaseImage}}
+{{- if eq .Type "compiled"}}
+ENV BUILD_CMD={{.BuildCmd | printf "%q"}}
+{{- end}}
+RUN mkdir -p /input /sandbox
+COPY wrapper.sh /wrapper.sh
+RUN chmod +x /wrapper.sh
+ENTRYPOINT ["/wrapper.sh"]
+CMD {{.RunCmdJSON}}
+`))
 
-func main() {
-	var dir string
-	var force bool
-	var lockfilePath string
-	var registryOut string
-
-	flag.StringVar(&dir, "dir", "images", "directory to read image specifications and write Dockerfiles to")
-	flag.StringVar(&lockfilePath, "lockfile", "", "path to the lockfile to read base image digests from")
-	flag.StringVar(&registryOut, "registry-out", "language_registry.yml", "output file for the generated language registry")
-	flag.BoolVar(&force, "force", false, "force overwrite existing Dockerfiles")
-	flag.Parse()
-
-	tmpl := template.Must(template.New("dockerfile").Parse(dockerfileTemplate))
+func runGenImages(cmd *cobra.Command, _ []string) error {
+	imageDir, err := cmd.Flags().GetString("image-dir")
+	if err != nil {
+		return fmt.Errorf("failed to get flag: %w", err)
+	}
+	lockfilePath, err := cmd.Flags().GetString("lockfile")
+	if err != nil {
+		return fmt.Errorf("failed to get flag: %w", err)
+	}
+	registryOut, err := cmd.Flags().GetString("registry")
+	if err != nil {
+		return fmt.Errorf("failed to get flag: %w", err)
+	}
+	force, _ := cmd.Flags().GetBool("force")
 
 	var lockfileData imagespec.Lockfile
 
@@ -50,14 +74,14 @@ func main() {
 	} else {
 		lf, err := imagespec.LoadLockfile(lockfilePath)
 		if err != nil {
-			log.Fatalf("failed to load lockfile: %v", err)
+			return fmt.Errorf("failed to load lockfile: %w", err)
 		}
 		lockfileData = lf
 	}
 
-	entries, err := imagespec.Load(dir)
+	entries, err := imagespec.Load(imageDir)
 	if err != nil {
-		log.Fatalf("failed to load image specs: %v", err)
+		return fmt.Errorf("failed to load image specs: %w", err)
 	}
 
 	languageRegistry := registry.Registry{Languages: make(map[string]registry.Language)}
@@ -70,7 +94,7 @@ func main() {
 		}
 
 		if entry.Spec.ExecCmd == "" {
-			log.Fatalf("%s: exec_cmd is required in the image spec", entry.Spec.Name)
+			return fmt.Errorf("%s: exec_cmd is required in the image spec", entry.Spec.Name)
 		}
 
 		languageRegistry.Languages[entry.Spec.Name] = registry.Language{
@@ -94,13 +118,13 @@ func main() {
 				digest = lockfileData[entry.Spec.Name][versionName]
 			}
 			if lockfileData != nil && digest == "" {
-				log.Fatalf("%s %s: no digest found in lockfile", entry.Spec.Name, versionName)
+				return fmt.Errorf("%s %s: no digest found in lockfile", entry.Spec.Name, versionName)
 			}
 			if digest != "" {
 				baseTag, _, _ := strings.Cut(version.BaseImage, "@")
 				version.BaseImage = baseTag + "@" + digest
 			}
-			createDockerfile(entry.Dir, entry.Spec.Name, versionName, force, version, entry.Spec, tmpl, wrapperContent)
+			createDockerfile(entry.Dir, entry.Spec.Name, versionName, force, version, entry.Spec, dockerfileTemplate, wrapperContent)
 			languageRegistry.Languages[entry.Spec.Name].Versions[versionName] = registry.Version{
 				Name:     versionName,
 				Image:    versionEntryImageNamePrefix + entry.Spec.Name + ":" + versionName,
@@ -112,14 +136,15 @@ func main() {
 
 	registryBytes, err := yaml.Marshal(languageRegistry)
 	if err != nil {
-		log.Fatalf("failed to marshal language registry to YAML: %v", err)
+		return fmt.Errorf("failed to marshal language registry to YAML: %w", err)
 	}
 
 	if err := os.WriteFile(registryOut, registryBytes, 0o644); err != nil {
-		log.Fatalf("failed to write language registry to %s: %v", registryOut, err)
+		return fmt.Errorf("failed to write language registry to %s: %w", registryOut, err)
 	}
 
 	log.Printf("language registry generated successfully at %s", registryOut)
+	return nil
 }
 
 func createDockerfile(langDir string, langName string, versionName string, force bool, version imagespec.Version, spec imagespec.ImageSpec, tmpl *template.Template, wrapperContent []byte) {

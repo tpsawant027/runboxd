@@ -1,9 +1,8 @@
-package main
+package cmd
 
 import (
 	"context"
 	"errors"
-	"flag"
 	"fmt"
 	"log"
 	"os"
@@ -12,22 +11,38 @@ import (
 	"strings"
 	"time"
 
+	"github.com/spf13/cobra"
 	"github.com/tpsawant027/runboxd/internal/registry"
 	"golang.org/x/sync/errgroup"
 )
 
-func main() {
-	var registryPath string
-	var rootfsDir string
+var exportRootFSCmd = &cobra.Command{
+	Use:   "export-rootfs",
+	Short: "Export the root filesystem of a built image as a directory",
+	RunE: func(cmd *cobra.Command, args []string) error {
+		return runExportRootFS(cmd, args)
+	},
+}
 
-	flag.StringVar(&registryPath, "registry", "language_registry.yml", "path to registry YAML")
-	flag.StringVar(&rootfsDir, "rootfs", "_rootfs", "directory to export root filesystems to (underscore prefix keeps it out of `go ./...`)")
+func init() {
+	rootCmd.AddCommand(exportRootFSCmd)
 
-	flag.Parse()
+	exportRootFSCmd.Flags().String("rootfs-dir", "_rootfs", "directory where the exported root filesystem tarballs will be written")
+}
+
+func runExportRootFS(cmd *cobra.Command, _ []string) error {
+	registryPath, err := cmd.Flags().GetString("registry")
+	if err != nil {
+		return fmt.Errorf("failed to get flag: %w", err)
+	}
+	rootfsDir, err := cmd.Flags().GetString("rootfs-dir")
+	if err != nil {
+		return fmt.Errorf("failed to get flag: %w", err)
+	}
 
 	registry, err := registry.Load(registryPath)
 	if err != nil {
-		log.Fatalf("failed to load registry: %v", err)
+		return fmt.Errorf("failed to load registry: %w", err)
 	}
 
 	g, gctx := errgroup.WithContext(context.Background())
@@ -86,8 +101,9 @@ func main() {
 	}
 
 	if err := g.Wait(); err != nil {
-		log.Fatalf("failed to export all rootfs: %v", err)
+		return fmt.Errorf("failed to export all rootfs: %w", err)
 	}
+	return nil
 }
 
 func exportRootfs(gctx context.Context, containerID string, dest string, entry registry.Language, version registry.Version) error {

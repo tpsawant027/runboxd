@@ -1,31 +1,46 @@
-package main
+package cmd
 
 import (
 	"context"
-	"flag"
+	"fmt"
 	"log"
 	"os/exec"
 	"path/filepath"
 	"time"
 
+	"github.com/spf13/cobra"
 	"github.com/tpsawant027/runboxd/internal/registry"
 	"golang.org/x/sync/errgroup"
 )
 
-func main() {
-	var dir string
-	var registryPath string
-	var noCache bool
+var buildImagesCmd = &cobra.Command{
+	Use:   "build-images",
+	Short: "Build all images using the generated Dockerfiles",
+	RunE: func(cmd *cobra.Command, args []string) error {
+		return runBuildImages(cmd, args)
+	},
+}
 
-	flag.StringVar(&dir, "dir", "images", "directory containing per-language image subdirs")
-	flag.StringVar(&registryPath, "registry", "language_registry.yml", "path to registry YAML")
-	flag.BoolVar(&noCache, "no-cache", false, "pass `--no-cache` to docker build")
+func init() {
+	rootCmd.AddCommand(buildImagesCmd)
 
-	flag.Parse()
+	buildImagesCmd.Flags().Bool("no-cache", false, "pass `--no-cache` to docker build")
+}
+
+func runBuildImages(cmd *cobra.Command, _ []string) error {
+	imageDir, err := cmd.Flags().GetString("image-dir")
+	if err != nil {
+		return fmt.Errorf("failed to get flag: %w", err)
+	}
+	registryPath, err := cmd.Flags().GetString("registry")
+	if err != nil {
+		return fmt.Errorf("failed to get flag: %w", err)
+	}
+	noCache, _ := cmd.Flags().GetBool("no-cache")
 
 	registry, err := registry.Load(registryPath)
 	if err != nil {
-		log.Fatalf("failed to load registry: %v", err)
+		return fmt.Errorf("failed to load registry: %w", err)
 	}
 
 	g, gctx := errgroup.WithContext(context.Background())
@@ -36,7 +51,7 @@ func main() {
 				startTime := time.Now()
 				log.Printf("building image for %s %s", entry.Name, version.Name)
 				imageTag := version.Image
-				buildDir := filepath.Join(dir, entry.Name, version.Name)
+				buildDir := filepath.Join(imageDir, entry.Name, version.Name)
 				args := []string{"build", "-t", imageTag}
 				if noCache {
 					args = append(args, "--no-cache")
@@ -52,8 +67,8 @@ func main() {
 			})
 		}
 	}
-
 	if err := g.Wait(); err != nil {
-		log.Fatalf("failed to build all images: %v", err)
+		return fmt.Errorf("failed to build all images: %w", err)
 	}
+	return nil
 }

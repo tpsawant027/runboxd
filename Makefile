@@ -19,15 +19,15 @@ cover:
 	go tool cover -func=$(COVER_PROFILE)
 	go tool cover -html=$(COVER_PROFILE) -o $(COVER_PROFILE:.out=.html)
 gen-lock:
-	go run ./cmd/genlock -dir ./images -out ./images.lock.yml
+	go run ./cmd/runboxctl gen-lock --image-dir ./images --lockfile ./images.lock.yml
 gen-images:
-	go run ./cmd/imagegen -dir ./images -lockfile ./images.lock.yml -registry-out ./language_registry.yml
+	go run ./cmd/runboxctl gen-images --image-dir ./images --lockfile ./images.lock.yml --registry ./language_registry.yml
 images: gen-images
-	go run ./cmd/buildimages -dir ./images -registry ./language_registry.yml
+	go run ./cmd/runboxctl build-images --image-dir ./images --registry ./language_registry.yml
 # Export each built image to a flat rootfs tree (for the nsjail backend's --chroot).
 rootfs: images
 	-chmod -R u+w _rootfs 2>/dev/null
-	go run ./cmd/exportrootfs -registry ./language_registry.yml -rootfs ./_rootfs
+	go run ./cmd/runboxctl export-rootfs --registry ./language_registry.yml --rootfs-dir ./_rootfs
 integration: images
 	go test -tags=integration -race -timeout 5m ./...
 integration-nsjail: rootfs
