@@ -28,6 +28,7 @@ func init() {
 	rootCmd.AddCommand(exportRootFSCmd)
 
 	exportRootFSCmd.Flags().String("rootfs-dir", "_rootfs", "directory where the exported root filesystem tarballs will be written")
+	exportRootFSCmd.Flags().Bool("force", false, "re-export all rootfs even if the image digest is unchanged")
 }
 
 func runExportRootFS(cmd *cobra.Command, _ []string) error {
@@ -39,6 +40,7 @@ func runExportRootFS(cmd *cobra.Command, _ []string) error {
 	if err != nil {
 		return fmt.Errorf("failed to get flag: %w", err)
 	}
+	force, _ := cmd.Flags().GetBool("force")
 
 	registry, err := registry.Load(registryPath)
 	if err != nil {
@@ -51,9 +53,21 @@ func runExportRootFS(cmd *cobra.Command, _ []string) error {
 		for _, version := range entry.Versions {
 			g.Go(func() error {
 				startTime := time.Now()
-				log.Printf("exporting rootfs for %s %s", entry.Name, version.Name)
 
 				dest := filepath.Join(rootfsDir, entry.Name, version.Name)
+				destDigestFile := dest + ".digest"
+				imageID, err := getImageID(gctx, version.Image)
+				if err != nil {
+					log.Printf("failed to get image ID for %s %s: %v", entry.Name, version.Name, err)
+					return err
+				}
+				if !force {
+					existingDigest, err := os.ReadFile(destDigestFile)
+					if err == nil && strings.TrimSpace(string(existingDigest)) == imageID && dirExistsAndNotEmpty(dest) {
+						log.Printf("rootfs for %s %s is up to date, skipping", entry.Name, version.Name)
+						return nil
+					}
+				}
 
 				if err := os.RemoveAll(dest); err != nil {
 					log.Printf("failed to remove existing rootfs for %s %s: %v", entry.Name, version.Name, err)
@@ -94,6 +108,11 @@ func runExportRootFS(cmd *cobra.Command, _ []string) error {
 					}
 				}
 
+				if err := os.WriteFile(destDigestFile, []byte(imageID), 0o644); err != nil {
+					log.Printf("failed to write digest file for %s %s: %v", entry.Name, version.Name, err)
+					return err
+				}
+
 				log.Printf("successfully exported rootfs for %s %s in %s", entry.Name, version.Name, time.Since(startTime))
 				return nil
 			})
@@ -132,4 +151,34 @@ func exportRootfs(gctx context.Context, containerID string, dest string, entry r
 	}
 
 	return nil
+}
+
+func getImageID(ctx context.Context, image string) (string, error) {
+	inspectCmd := exec.CommandContext(ctx, "docker", "image", "inspect", image, "--format", "{{.Id}}")
+	output, err := inspectCmd.Output()
+	if err != nil {
+		stderr := ""
+		if ee, ok := errors.AsType[*exec.ExitError](err); ok {
+			stderr = string(ee.Stderr)
+		}
+		return "", fmt.Errorf("failed to inspect image %s: %v\n%s", image, err, stderr)
+	}
+	return strings.TrimSpace(string(output)), nil
+}
+
+func dirExistsAndNotEmpty(path string) bool {
+	info, err := os.Stat(path)
+	if err != nil {
+		return false
+	}
+	if !info.IsDir() {
+		return false
+	}
+	f, err := os.Open(path)
+	if err != nil {
+		return false
+	}
+	defer f.Close()
+	_, err = f.Readdirnames(1)
+	return err == nil
 }

@@ -1,8 +1,11 @@
 package cmd
 
 import (
+	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io/fs"
 	"log"
 	"os"
 	"path/filepath"
@@ -27,7 +30,6 @@ func init() {
 	rootCmd.AddCommand(genImagesCmd)
 
 	genImagesCmd.Flags().String("lockfile", "", "path to the lockfile to read base image digests from")
-	genImagesCmd.Flags().Bool("force", false, "force overwrite existing Dockerfiles")
 }
 
 type dockerfileData struct {
@@ -63,13 +65,12 @@ func runGenImages(cmd *cobra.Command, _ []string) error {
 	if err != nil {
 		return fmt.Errorf("failed to get flag: %w", err)
 	}
-	force, _ := cmd.Flags().GetBool("force")
 
 	var lockfileData imagespec.Lockfile
 
 	if lockfilePath == "" {
 		log.Printf("no lockfile specified, base image digests will not be included in generated Dockerfiles")
-	} else if _, err := os.Stat(lockfilePath); os.IsNotExist(err) {
+	} else if _, err := os.Stat(lockfilePath); errors.Is(err, fs.ErrNotExist) {
 		log.Printf("lockfile %s does not exist, base image digests will not be included in generated Dockerfiles", lockfilePath)
 	} else {
 		lf, err := imagespec.LoadLockfile(lockfilePath)
@@ -124,7 +125,9 @@ func runGenImages(cmd *cobra.Command, _ []string) error {
 				baseTag, _, _ := strings.Cut(version.BaseImage, "@")
 				version.BaseImage = baseTag + "@" + digest
 			}
-			createDockerfile(entry.Dir, entry.Spec.Name, versionName, force, version, entry.Spec, dockerfileTemplate, wrapperContent)
+			if err := createDockerfile(entry.Dir, entry.Spec.Name, versionName, version, entry.Spec, dockerfileTemplate, wrapperContent); err != nil {
+				return fmt.Errorf("failed to create Dockerfile for %s %s: %w", entry.Spec.Name, versionName, err)
+			}
 			languageRegistry.Languages[entry.Spec.Name].Versions[versionName] = registry.Version{
 				Name:     versionName,
 				Image:    versionEntryImageNamePrefix + entry.Spec.Name + ":" + versionName,
@@ -147,17 +150,12 @@ func runGenImages(cmd *cobra.Command, _ []string) error {
 	return nil
 }
 
-func createDockerfile(langDir string, langName string, versionName string, force bool, version imagespec.Version, spec imagespec.ImageSpec, tmpl *template.Template, wrapperContent []byte) {
+func createDockerfile(langDir string, langName string, versionName string, version imagespec.Version, spec imagespec.ImageSpec, tmpl *template.Template, wrapperContent []byte) error {
 	outDir := filepath.Join(langDir, versionName)
 	outFile := filepath.Join(outDir, "Dockerfile")
-	if _, err := os.Stat(outFile); err == nil && !force {
-		log.Printf("skipping %s: Dockerfile already exists (use -force to overwrite)", outFile)
-		return
-	}
 
 	if err := os.MkdirAll(outDir, 0o755); err != nil {
-		log.Printf("failed to create directory %s: %v", outDir, err)
-		return
+		return fmt.Errorf("failed to create directory: %w", err)
 	}
 
 	data := dockerfileData{
@@ -169,28 +167,45 @@ func createDockerfile(langDir string, langName string, versionName string, force
 	}
 	jsonBytes, err := json.Marshal(version.RunCmd)
 	if err != nil {
-		log.Printf("failed to marshal run command for %s %s: %v", langName, versionName, err)
-		return
+		return fmt.Errorf("failed to marshal run command: %w", err)
 	}
 	data.RunCmdJSON = string(jsonBytes)
 
-	out, err := os.Create(outFile)
-	if err != nil {
-		log.Printf("failed to create %s: %v", outFile, err)
-		return
-	}
-	defer out.Close()
+	var outBuf bytes.Buffer
 
-	if err := tmpl.Execute(out, data); err != nil {
-		log.Printf("failed to execute template for %s %s: %v", langName, versionName, err)
-		return
+	if err := tmpl.Execute(&outBuf, data); err != nil {
+		return fmt.Errorf("failed to execute template: %w", err)
+	}
+
+	changed, err := writeIfChanged(outFile, outBuf.Bytes(), 0o644)
+	if err != nil {
+		return fmt.Errorf("failed to write Dockerfile: %w", err)
 	}
 
 	dstWrapperFile := filepath.Join(outDir, imagespec.WrapperFilename)
-	if err := os.WriteFile(dstWrapperFile, wrapperContent, 0o755); err != nil {
-		log.Printf("failed to write wrapper script to %s: %v", dstWrapperFile, err)
-		return
+	if _, err := writeIfChanged(dstWrapperFile, wrapperContent, 0o755); err != nil {
+		return fmt.Errorf("failed to write wrapper script: %w", err)
 	}
 
-	log.Printf("generated Dockerfile for %s %s at %s", langName, versionName, outFile)
+	if changed {
+		log.Printf("generated Dockerfile for %s %s at %s", langName, versionName, outFile)
+	} else {
+		log.Printf("Dockerfile for %s %s is up to date, skipping", langName, versionName)
+	}
+
+	return nil
+}
+
+func writeIfChanged(path string, content []byte, perm os.FileMode) (bool, error) {
+	existingContent, err := os.ReadFile(path)
+	if err != nil && !errors.Is(err, fs.ErrNotExist) {
+		return false, fmt.Errorf("failed to read existing file: %w", err)
+	}
+	if bytes.Equal(existingContent, content) {
+		return false, nil
+	}
+	if err := os.WriteFile(path, content, perm); err != nil {
+		return false, fmt.Errorf("failed to write file: %w", err)
+	}
+	return true, nil
 }

@@ -49,7 +49,7 @@ func runBuildImages(cmd *cobra.Command, _ []string) error {
 		for _, version := range entry.Versions {
 			g.Go(func() error {
 				startTime := time.Now()
-				log.Printf("building image for %s %s", entry.Name, version.Name)
+
 				imageTag := version.Image
 				buildDir := filepath.Join(imageDir, entry.Name, version.Name)
 				args := []string{"build", "-t", imageTag}

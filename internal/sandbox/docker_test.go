@@ -2,6 +2,7 @@ package sandbox
 
 import (
 	"errors"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"testing"
@@ -504,7 +505,7 @@ func TestSetupWorkspace(t *testing.T) {
 			t.Fatalf("expected error for non-local path, got nil")
 		}
 		if tmpDir != "" {
-			if _, statErr := os.Stat(tmpDir); !os.IsNotExist(statErr) {
+			if _, statErr := os.Stat(tmpDir); !errors.Is(statErr, fs.ErrNotExist) {
 				t.Errorf("tmpDir %q should have been removed, stat err = %v", tmpDir, statErr)
 			}
 		}

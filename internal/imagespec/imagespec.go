@@ -2,7 +2,9 @@
 package imagespec
 
 import (
+	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 
@@ -66,7 +68,7 @@ func Load(dir string) ([]Entry, error) {
 		}
 		langDir := filepath.Join(dir, f.Name())
 		specPath := filepath.Join(langDir, SpecFilename)
-		if _, err := os.Stat(specPath); os.IsNotExist(err) {
+		if _, err := os.Stat(specPath); errors.Is(err, fs.ErrNotExist) {
 			continue
 		}
 		data, err := os.ReadFile(specPath)

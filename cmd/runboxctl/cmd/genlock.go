@@ -1,15 +1,18 @@
 package cmd
 
 import (
+	"context"
 	"fmt"
 	"log"
 	"os"
 	"os/exec"
 	"strings"
+	"sync"
 
 	"github.com/spf13/cobra"
 	"github.com/tpsawant027/runboxd/internal/imagespec"
 	"go.yaml.in/yaml/v4"
+	"golang.org/x/sync/errgroup"
 )
 
 var genlockCmd = &cobra.Command{
@@ -24,7 +27,14 @@ func init() {
 	rootCmd.AddCommand(genlockCmd)
 
 	genlockCmd.Flags().String("lockfile", "images.lock.yml", "path where the generated lockfile will be written")
+	genlockCmd.Flags().Bool("drop-stale", false, "drop entries whose digest can't be refreshed instead of keeping the existing one")
 	genlockCmd.Flags().Bool("verbose", false, "enable verbose logging")
+}
+
+type refreshFailure struct {
+	lang    string
+	version string
+	kept    bool
 }
 
 func runGenLock(cmd *cobra.Command, _ []string) error {
@@ -36,6 +46,7 @@ func runGenLock(cmd *cobra.Command, _ []string) error {
 	if err != nil {
 		return fmt.Errorf("failed to get flag: %w", err)
 	}
+	dropStale, _ := cmd.Flags().GetBool("drop-stale")
 	verbose, _ := cmd.Flags().GetBool("verbose")
 
 	entries, err := imagespec.Load(imageDir)
@@ -50,41 +61,73 @@ func runGenLock(cmd *cobra.Command, _ []string) error {
 	}
 
 	newLockFile := make(imagespec.Lockfile)
+
+	g, gctx := errgroup.WithContext(context.Background())
+	g.SetLimit(5)
+
+	var mu sync.Mutex
+	var failures []refreshFailure
+
 	for _, entry := range entries {
-		newLockFile[entry.Spec.Name] = make(map[string]string)
 		for versionName, version := range entry.Spec.Versions {
-			baseImage, _, _ := strings.Cut(version.BaseImage, "@")
-			if baseImage == "" {
-				log.Printf("skipping %s %s: base image is empty", entry.Spec.Name, versionName)
-				continue
-			}
-			inspectCmd := exec.Command("docker", "buildx", "imagetools", "inspect", baseImage, "--format", "{{.Manifest.Digest}}")
-
-			output, err := inspectCmd.Output()
-			if err != nil {
-				log.Printf("failed to inspect base image %s for %s %s: %v", baseImage, entry.Spec.Name, versionName, err)
-				continue
-			}
-
-			newDigest := strings.TrimSpace(string(output))
-
-			newLockFile[entry.Spec.Name][versionName] = newDigest
-			if verbose {
-				var oldDigest string
-				if currLockFile != nil {
-					oldDigest = currLockFile[entry.Spec.Name][versionName]
+			g.Go(func() error {
+				baseImage, _, _ := strings.Cut(version.BaseImage, "@")
+				if baseImage == "" {
+					log.Printf("skipping %s %s: base image is empty", entry.Spec.Name, versionName)
+					mu.Lock()
+					failures = append(failures, refreshFailure{entry.Spec.Name, versionName, false})
+					mu.Unlock()
+					return nil
 				}
-				if oldDigest == "" {
-					log.Printf("%s %s: base image digest is %s", entry.Spec.Name, versionName, newDigest)
-				} else if oldDigest != newDigest {
-					log.Printf("%s %s: base image digest changed from %s to %s", entry.Spec.Name, versionName, oldDigest, newDigest)
-				} else {
-					log.Printf("%s %s: base image digest is unchanged (%s)", entry.Spec.Name, versionName, newDigest)
+				inspectCmd := exec.CommandContext(gctx, "docker", "buildx", "imagetools", "inspect", baseImage, "--format", "{{.Manifest.Digest}}")
+				output, err := inspectCmd.Output()
+				if err != nil {
+					log.Printf("failed to inspect base image %s for %s %s: %v", baseImage, entry.Spec.Name, versionName, err)
+					kept := false
+					if !dropStale && currLockFile != nil && currLockFile[entry.Spec.Name][versionName] != "" {
+						existing := currLockFile[entry.Spec.Name][versionName]
+						log.Printf("keeping existing digest for %s %s: %s", entry.Spec.Name, versionName, existing)
+						mu.Lock()
+						if _, ok := newLockFile[entry.Spec.Name]; !ok {
+							newLockFile[entry.Spec.Name] = make(map[string]string)
+						}
+						newLockFile[entry.Spec.Name][versionName] = existing
+						mu.Unlock()
+						kept = true
+					}
+					mu.Lock()
+					failures = append(failures, refreshFailure{entry.Spec.Name, versionName, kept})
+					mu.Unlock()
+					return nil
 				}
-			}
+				newDigest := strings.TrimSpace(string(output))
+				mu.Lock()
+				if _, ok := newLockFile[entry.Spec.Name]; !ok {
+					newLockFile[entry.Spec.Name] = make(map[string]string)
+				}
+				newLockFile[entry.Spec.Name][versionName] = newDigest
+				mu.Unlock()
+
+				if verbose {
+					var oldDigest string
+					if currLockFile != nil {
+						oldDigest = currLockFile[entry.Spec.Name][versionName]
+					}
+					if oldDigest == "" {
+						log.Printf("%s %s: base image digest is %s", entry.Spec.Name, versionName, newDigest)
+					} else if oldDigest != newDigest {
+						log.Printf("%s %s: base image digest changed from %s to %s", entry.Spec.Name, versionName, oldDigest, newDigest)
+					} else {
+						log.Printf("%s %s: base image digest is unchanged (%s)", entry.Spec.Name, versionName, newDigest)
+					}
+				}
+
+				return nil
+			})
 		}
-
 	}
+
+	_ = g.Wait()
 
 	yamlBytes, err := yaml.Marshal(newLockFile)
 	if err != nil {
@@ -95,7 +138,22 @@ func runGenLock(cmd *cobra.Command, _ []string) error {
 		return fmt.Errorf("failed to write lockfile to %s: %w", lockfileOut, err)
 	}
 
-	log.Printf("lockfile generated successfully at %s", lockfileOut)
+	log.Printf("wrote lockfile to %s", lockfileOut)
+
+	if len(failures) > 0 {
+		var kept, unpinned int
+		log.Printf("WARNING: %d base image(s) failed to refresh:", len(failures))
+		for _, f := range failures {
+			if f.kept {
+				kept++
+				log.Printf("  - %s %s: kept existing digest", f.lang, f.version)
+			} else {
+				unpinned++
+				log.Printf("  - %s %s: left unpinned (gen-images will fail for this entry)", f.lang, f.version)
+			}
+		}
+		return fmt.Errorf("%d base image(s) failed to refresh (%d kept existing, %d unpinned)", len(failures), kept, unpinned)
+	}
 
 	return nil
 }
