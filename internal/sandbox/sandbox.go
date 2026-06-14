@@ -62,12 +62,14 @@ type LangLimits struct {
 	MinTimeout, MaxTimeout         time.Duration
 	MinMemoryBytes, MaxMemoryBytes int64
 	MaxPids                        int64
+	MaxCPUs                        float64
 }
 
 type LangCompileLimits struct {
 	MemoryBytes int64
 	Timeout     time.Duration
 	MaxPids     int64
+	MaxCPUs     float64
 }
 
 type LangSpec struct {

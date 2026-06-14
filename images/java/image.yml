@@ -11,10 +11,12 @@ limits:
   min_timeout_seconds: 1
   max_timeout_seconds: 10
   max_pids: 64
+  max_cpus: 1
 compile_limits:
   memory_mib: 512
   timeout_seconds: 10
   max_pids: 64
+  max_cpus: 1
 versions:
   "21":
     base_image: eclipse-temurin:21-jdk-ubi10-minimal

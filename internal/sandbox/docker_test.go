@@ -3,6 +3,7 @@ package sandbox
 import (
 	"errors"
 	"io/fs"
+	"math"
 	"os"
 	"path/filepath"
 	"testing"
@@ -143,6 +144,7 @@ func fillUnsetLangLimits(input LangLimits) LangLimits {
 	input.MinMemoryBytes = valueWithDefault(input.MinMemoryBytes, MinMemoryBytes)
 	input.MaxMemoryBytes = valueWithDefault(input.MaxMemoryBytes, MaxMemoryBytes)
 	input.MaxPids = valueWithDefault(input.MaxPids, MaxPids)
+	input.MaxCPUs = valueWithDefault(input.MaxCPUs, DefaultMaxCPUs)
 	return input
 }
 
@@ -163,6 +165,7 @@ func TestResolveLangLimits(t *testing.T) {
 				MinMemoryBytes: MinMemoryBytes,
 				MaxMemoryBytes: MaxMemoryBytes,
 				MaxPids:        MaxPids,
+				MaxCPUs:        DefaultMaxCPUs,
 			},
 		},
 		{
@@ -174,6 +177,11 @@ func TestResolveLangLimits(t *testing.T) {
 			name:  "only min timeout set",
 			input: imagespec.Limits{MinTimeoutSeconds: 2},
 			want:  fillUnsetLangLimits(LangLimits{MinTimeout: 2 * time.Second}),
+		},
+		{
+			name:  "only max cpus set",
+			input: imagespec.Limits{MaxCPUs: 2.0},
+			want:  fillUnsetLangLimits(LangLimits{MaxCPUs: 2.0}),
 		},
 		{
 			name:  "low max clamps unset min: memory",
@@ -270,8 +278,7 @@ func TestValidateLangLimits(t *testing.T) {
 			wantErr: true,
 		},
 		{
-			// Pins the `< 1` boundary: zero must fail. A negative-only case
-			// would still pass if the check were the weaker `< 0`.
+			// Pins the `< 1` boundary: zero must fail, not just negatives.
 			name: "zero max pids",
 			limits: func() LangLimits {
 				l := validLimits
@@ -281,10 +288,8 @@ func TestValidateLangLimits(t *testing.T) {
 			wantErr: true,
 		},
 		{
-			// Regression guard for the operator-trust decision: the package
-			// consts are defaults, not hard bounds. Limits well above the old
-			// global ceiling must validate — if someone reintroduces an
-			// absolute-ceiling envelope check, this fails.
+			// Operator-trust: consts are defaults, not hard ceilings. Limits
+			// above the old global ceiling must validate.
 			name: "above old global ceiling is allowed",
 			limits: func() LangLimits {
 				l := validLimits
@@ -293,6 +298,47 @@ func TestValidateLangLimits(t *testing.T) {
 				return l
 			}(),
 			wantErr: false,
+		},
+		{
+			name: "negative max cpus",
+			limits: func() LangLimits {
+				l := validLimits
+				l.MaxCPUs = -0.1
+				return l
+			}(),
+			wantErr: true,
+		},
+		{
+			// Zero (hand-pinned registry) must fail: it maps to UNLIMITED CPU.
+			name: "zero max cpus",
+			limits: func() LangLimits {
+				l := validLimits
+				l.MaxCPUs = 0
+				return l
+			}(),
+			wantErr: true,
+		},
+		{
+			// NaN slips past a bare `<= 0` (all NaN comparisons are false) and
+			// converts to a garbage int64 at the backend.
+			name: "nan max cpus",
+			limits: func() LangLimits {
+				l := validLimits
+				l.MaxCPUs = math.NaN()
+				return l
+			}(),
+			wantErr: true,
+		},
+		{
+			// +Inf is > 0 so it passes the positivity check; must be rejected
+			// separately or it converts to a garbage int64 at the backend.
+			name: "positive infinity max cpus",
+			limits: func() LangLimits {
+				l := validLimits
+				l.MaxCPUs = math.Inf(1)
+				return l
+			}(),
+			wantErr: true,
 		},
 	}
 

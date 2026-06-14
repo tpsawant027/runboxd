@@ -39,7 +39,6 @@ const (
 	nsjailRunNofile       = 64
 	nsjailCompileFsizeMiB = 1024
 	nsjailCompileNofile   = 512
-	nsjailCPUMsPerSec     = 500
 )
 
 var nsjailCfgTmpl = template.Must(
@@ -360,7 +359,7 @@ func writeNsjailConfig(ns nsjailSpec, timeout time.Duration, memBytes int64, cgr
 		CgroupMount:       cgroupMount,
 		CgroupMemMax:      memBytes,
 		CgroupPidsMax:     ns.limits.MaxPids,
-		CgroupCPUMsPerSec: nsjailCPUMsPerSec,
+		CgroupCPUMsPerSec: int(math.Ceil(ns.limits.MaxCPUs * 1e3)),
 		Cmd:               ns.runCmd,
 		Env:               ns.env,
 	}
@@ -373,13 +372,19 @@ func writeNsjailConfig(ns nsjailSpec, timeout time.Duration, memBytes int64, cgr
 		cfgData.TimeoutSec = int(math.Ceil(ns.compileLimits.Timeout.Seconds()))
 		cfgData.MaxPids = ns.compileLimits.MaxPids
 		cfgData.CgroupPidsMax = ns.compileLimits.MaxPids
+		cfgData.CgroupCPUMsPerSec = int(math.Ceil(ns.compileLimits.MaxCPUs * 1e3))
 		cfgData.LogPath = filepath.Join(tmpDir, nsjailBuildLogName)
 		cfgData.FsizeMB = nsjailCompileFsizeMiB
 		cfgData.Nofile = nsjailCompileNofile
 		cfgData.Cmd = ns.buildCmd
 	}
 
-	cfgData.Cmd = injectJVMFlags(cfgData.Cmd, memBytes)
+	maxCPUs := ns.limits.MaxCPUs
+	if stage == "build" && ns.compileLimits.MaxCPUs > 0 {
+		maxCPUs = ns.compileLimits.MaxCPUs
+	}
+
+	cfgData.Cmd = injectJVMFlags(cfgData.Cmd, memBytes, maxCPUs)
 
 	if err := nsjailCfgTmpl.Execute(cfgFile, cfgData); err != nil {
 		return "", fmt.Errorf("rendering nsjail config template: %w", err)
@@ -388,7 +393,7 @@ func writeNsjailConfig(ns nsjailSpec, timeout time.Duration, memBytes int64, cgr
 	return cfgPath, nil
 }
 
-func injectJVMFlags(cmd []string, memBytes int64) []string {
+func injectJVMFlags(cmd []string, memBytes int64, maxCPUs float64) []string {
 	if len(cmd) == 0 {
 		return cmd
 	}
@@ -404,7 +409,7 @@ func injectJVMFlags(cmd []string, memBytes int64) []string {
 	flags := []string{
 		p + fmt.Sprintf("-XX:MaxRAM=%d", memBytes),
 		p + "-XX:+UseSerialGC",
-		p + "-XX:ActiveProcessorCount=1",
+		p + fmt.Sprintf("-XX:ActiveProcessorCount=%d", max(1, int(math.Ceil(maxCPUs)))),
 		p + "-XX:CICompilerCount=2",
 	}
 	newCmd := make([]string, 0, len(cmd)+len(flags))
@@ -419,6 +424,7 @@ func resolveLangCompileLimits(l imagespec.CompileLimits) LangCompileLimits {
 		MemoryBytes: valueWithDefault(int64(l.MemoryMiB)*1024*1024, MaxMemoryBytes),
 		Timeout:     valueWithDefault(time.Duration(l.TimeoutSeconds)*time.Second, MaxTimeout),
 		MaxPids:     valueWithDefault(int64(l.MaxPids), MaxPids),
+		MaxCPUs:     valueWithDefault(l.MaxCPUs, DefaultMaxCPUs),
 	}
 }
 
@@ -431,6 +437,11 @@ func validateLangCompileLimits(limits LangCompileLimits) error {
 	}
 	if limits.MaxPids < 1 {
 		return fmt.Errorf("compile MaxPids must be at least 1")
+	}
+	// Reject non-positive AND non-finite: 0/negative -> 0 = UNLIMITED at the
+	// backend; NaN/+Inf slip past a bare `<= 0` and convert to a garbage int64.
+	if !(limits.MaxCPUs > 0) || math.IsInf(limits.MaxCPUs, 1) {
+		return fmt.Errorf("MaxCPUs must be a positive, finite number")
 	}
 	return nil
 }

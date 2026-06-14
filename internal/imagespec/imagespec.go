@@ -29,17 +29,19 @@ type ImageSpec struct {
 }
 
 type Limits struct {
-	MinMemoryMiB      int `yaml:"min_memory_mib"`
-	MaxMemoryMiB      int `yaml:"max_memory_mib"`
-	MinTimeoutSeconds int `yaml:"min_timeout_seconds"`
-	MaxTimeoutSeconds int `yaml:"max_timeout_seconds"`
-	MaxPids           int `yaml:"max_pids"`
+	MinMemoryMiB      int     `yaml:"min_memory_mib"`
+	MaxMemoryMiB      int     `yaml:"max_memory_mib"`
+	MinTimeoutSeconds int     `yaml:"min_timeout_seconds"`
+	MaxTimeoutSeconds int     `yaml:"max_timeout_seconds"`
+	MaxPids           int     `yaml:"max_pids"`
+	MaxCPUs           float64 `yaml:"max_cpus"`
 }
 
 type CompileLimits struct {
-	MemoryMiB      int `yaml:"memory_mib"`
-	TimeoutSeconds int `yaml:"timeout_seconds"`
-	MaxPids        int `yaml:"max_pids"`
+	MemoryMiB      int     `yaml:"memory_mib"`
+	TimeoutSeconds int     `yaml:"timeout_seconds"`
+	MaxPids        int     `yaml:"max_pids"`
+	MaxCPUs        float64 `yaml:"max_cpus"`
 }
 
 type Version struct {

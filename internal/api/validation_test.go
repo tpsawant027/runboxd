@@ -214,6 +214,7 @@ func TestValidateLimits(t *testing.T) {
 		MaxTimeout:     10 * time.Second,
 		MinMemoryBytes: 64 * 1024 * 1024,
 		MaxMemoryBytes: 128 * 1024 * 1024,
+		MaxCPUs:        sandbox.DefaultMaxCPUs,
 	}
 
 	cases := []struct {

@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"math"
 	"os"
 	"path/filepath"
 	"strings"
@@ -29,8 +30,8 @@ const (
 	MaxTimeout            = 10 * time.Second
 	MinMemoryBytes        = 64 * 1024 * 1024  // 64 MiB
 	MaxMemoryBytes        = 256 * 1024 * 1024 // 256 MiB
-	DefaultNanoCPUs       = 500_000_000       // 0.5 CPU
-	MaxOutputBytes        = 1 * 1024 * 1024   // 1 MiB per stream
+	DefaultMaxCPUs        = 0.5
+	MaxOutputBytes        = 1 * 1024 * 1024 // 1 MiB per stream
 	MaxLogConfigFileSize  = "3m"
 	MaxLogConfigFileCount = "1"
 
@@ -443,6 +444,7 @@ func resolveLangLimits(l imagespec.Limits) LangLimits {
 		MinMemoryBytes: minMemory,
 		MaxMemoryBytes: maxMemory,
 		MaxPids:        valueWithDefault(int64(l.MaxPids), MaxPids),
+		MaxCPUs:        valueWithDefault(l.MaxCPUs, DefaultMaxCPUs),
 	}
 }
 
@@ -455,6 +457,11 @@ func validateLangLimits(limits LangLimits) error {
 	}
 	if limits.MaxPids < 1 {
 		return fmt.Errorf("MaxPids must be at least 1")
+	}
+	// Reject non-positive AND non-finite: 0/negative -> 0 = UNLIMITED at the
+	// backend; NaN/+Inf slip past a bare `<= 0` and convert to a garbage int64.
+	if !(limits.MaxCPUs > 0) || math.IsInf(limits.MaxCPUs, 1) {
+		return fmt.Errorf("MaxCPUs must be a positive, finite number")
 	}
 
 	if limits.MinTimeout > limits.MaxTimeout {
@@ -528,7 +535,7 @@ func getHostConfig(spec RunSpec, ds dockerSpec, inputSrc string) *container.Host
 	hc := &container.HostConfig{
 		Resources: container.Resources{
 			PidsLimit: new(ds.limits.MaxPids),
-			NanoCPUs:  DefaultNanoCPUs,
+			NanoCPUs:  int64(math.Ceil(ds.limits.MaxCPUs * 1e9)),
 		},
 		CapDrop:        []string{"ALL"},
 		SecurityOpt:    []string{"no-new-privileges:true"},
