@@ -246,6 +246,7 @@ func toLanguageInfoResponses(langs []sandbox.LanguageInfo) []LanguageInfoRespons
 				MinMemoryBytes:    l.Limits.MinMemoryBytes,
 				MaxMemoryBytes:    l.Limits.MaxMemoryBytes,
 				MaxPids:           l.Limits.MaxPids,
+				MaxCPUs:           l.Limits.MaxCPUs,
 			},
 		}
 	}

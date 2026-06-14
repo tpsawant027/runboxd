@@ -28,11 +28,12 @@ type ExecuteResponse struct {
 
 // LimitsResponse is the per-language resource limits in an info response.
 type LimitsResponse struct {
-	MinTimeoutSeconds int64 `json:"min_timeout_seconds"`
-	MaxTimeoutSeconds int64 `json:"max_timeout_seconds"`
-	MinMemoryBytes    int64 `json:"min_memory_bytes"`
-	MaxMemoryBytes    int64 `json:"max_memory_bytes"`
-	MaxPids           int64 `json:"max_pids"`
+	MinTimeoutSeconds int64   `json:"min_timeout_seconds"`
+	MaxTimeoutSeconds int64   `json:"max_timeout_seconds"`
+	MinMemoryBytes    int64   `json:"min_memory_bytes"`
+	MaxMemoryBytes    int64   `json:"max_memory_bytes"`
+	MaxPids           int64   `json:"max_pids"`
+	MaxCPUs           float64 `json:"max_cpus"`
 }
 
 // LanguageInfoResponse describes a supported language in an info response.
