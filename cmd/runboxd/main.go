@@ -32,7 +32,14 @@ func run() error {
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGTERM, syscall.SIGINT)
 	defer stop()
 
-	cfg := config.Load()
+	cfg, err := config.Load()
+	if err != nil {
+		return err
+	}
+
+	if cfg.AuthToken == "" {
+		logger.Warn("running WITHOUT authentication - this is not recommended for production use", "auth_token_set", cfg.AuthToken != "")
+	}
 
 	pool := api.NewWorkerPool(cfg.WorkerPoolSize, cfg.MaxQueueSize)
 
@@ -64,7 +71,7 @@ func run() error {
 	addr := ":" + cfg.Port
 	srv := &http.Server{
 		Addr:              addr,
-		Handler:           api.NewServer(logger, sb, pool).Routes(),
+		Handler:           api.NewServer(logger, cfg.AuthToken, sb, pool).Routes(),
 		ReadHeaderTimeout: 5 * time.Second,
 		IdleTimeout:       120 * time.Second,
 	}

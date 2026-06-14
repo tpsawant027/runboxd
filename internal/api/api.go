@@ -27,15 +27,16 @@ const (
 )
 
 type Server struct {
-	logger  *slog.Logger
-	sandbox sandbox.Sandbox
-	pool    *WorkerPool
+	logger    *slog.Logger
+	authToken string
+	sandbox   sandbox.Sandbox
+	pool      *WorkerPool
 
 	sandboxSupportsInfo bool
 	sandboxInfo         *sandbox.SandboxInfo
 }
 
-func NewServer(logger *slog.Logger, sb sandbox.Sandbox, pool *WorkerPool) *Server {
+func NewServer(logger *slog.Logger, authToken string, sb sandbox.Sandbox, pool *WorkerPool) *Server {
 	var info *sandbox.SandboxInfo
 	var supportsInfo bool
 	if i, ok := sb.(sandbox.Informer); ok {
@@ -51,7 +52,12 @@ func NewServer(logger *slog.Logger, sb sandbox.Sandbox, pool *WorkerPool) *Serve
 	}
 
 	return &Server{
-		logger: logger, sandbox: sb, pool: pool, sandboxSupportsInfo: supportsInfo, sandboxInfo: info,
+		logger:              logger,
+		authToken:           authToken,
+		sandbox:             sb,
+		pool:                pool,
+		sandboxSupportsInfo: supportsInfo,
+		sandboxInfo:         info,
 	}
 }
 
@@ -67,7 +73,11 @@ func (s *Server) Routes() http.Handler {
 	r.Get("/healthz", handle(s.handleHealthz))
 	r.Get("/readyz", handle(s.handleReadyz))
 	r.Get("/info", handle(s.handleInfo))
-	r.With(s.pool.Middleware()).Post("/execute", handle(s.handleExecute))
+	if s.authToken != "" {
+		r.With(s.requireAuth, s.pool.Middleware()).Post("/execute", handle(s.handleExecute))
+	} else {
+		r.With(s.pool.Middleware()).Post("/execute", handle(s.handleExecute))
+	}
 	return r
 }
 

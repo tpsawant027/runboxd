@@ -67,13 +67,13 @@ func (i *informerSandbox) Info(ctx context.Context) (sandbox.SandboxInfo, error)
 	return i.info, i.infoErr
 }
 
-func newTestServer(sb sandbox.Sandbox) *Server {
+func newTestServer(sb sandbox.Sandbox, authToken string) *Server {
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
 	pool := NewWorkerPool(4, 8)
-	return NewServer(logger, sb, pool)
+	return NewServer(logger, authToken, sb, pool)
 }
 
-func runTest(srv *Server, method, path string, body any) (*httptest.ResponseRecorder, map[string]any) {
+func runTest(srv *Server, method, path, authHeader string, body any) (*httptest.ResponseRecorder, map[string]any) {
 	var r io.Reader
 	if body != nil {
 		switch b := body.(type) {
@@ -85,6 +85,9 @@ func runTest(srv *Server, method, path string, body any) (*httptest.ResponseReco
 		}
 	}
 	req := httptest.NewRequest(method, path, r)
+	if authHeader != "" {
+		req.Header.Set("Authorization", authHeader)
+	}
 	w := httptest.NewRecorder()
 	srv.Routes().ServeHTTP(w, req)
 	var decoded map[string]any
@@ -392,8 +395,8 @@ func TestExecute(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			srv := newTestServer(tc.sb)
-			w, gotBody := runTest(srv, http.MethodPost, "/execute", tc.reqBody)
+			srv := newTestServer(tc.sb, "")
+			w, gotBody := runTest(srv, http.MethodPost, "/execute", "", tc.reqBody)
 			if w.Code != tc.wantStatus {
 				t.Errorf("unexpected status code: got %d, want %d", w.Code, tc.wantStatus)
 			}
@@ -453,11 +456,11 @@ func TestExecutePoolSaturated(t *testing.T) {
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
 	pool := NewWorkerPool(1, 0)
 	sb := &fakeSandbox{}
-	srv := NewServer(logger, sb, pool)
+	srv := NewServer(logger, "", sb, pool)
 	pool.sem <- struct{}{} // occupy the only worker slot
 
 	reqBody := map[string]any{"language": "python", "version": "3.14", "code": "print('hello')"}
-	w, gotBody := runTest(srv, http.MethodPost, "/execute", reqBody)
+	w, gotBody := runTest(srv, http.MethodPost, "/execute", "", reqBody)
 
 	if w.Code != http.StatusTooManyRequests {
 		t.Errorf("unexpected status code: got %d, want %d", w.Code, http.StatusTooManyRequests)
@@ -474,8 +477,8 @@ func TestExecutePoolSaturated(t *testing.T) {
 func TestHealthz(t *testing.T) {
 	t.Run("healthy sandbox", func(t *testing.T) {
 		sb := &pingableSandbox{fakeSandbox: fakeSandbox{}, pingErr: nil}
-		srv := newTestServer(sb)
-		w, gotBody := runTest(srv, http.MethodGet, "/healthz", nil)
+		srv := newTestServer(sb, "")
+		w, gotBody := runTest(srv, http.MethodGet, "/healthz", "", nil)
 		if w.Code != http.StatusOK {
 			t.Errorf("unexpected status code: got %d, want %d", w.Code, http.StatusOK)
 		}
@@ -515,8 +518,8 @@ func TestReadyz(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			srv := newTestServer(tc.sb)
-			w, gotBody := runTest(srv, http.MethodGet, "/readyz", nil)
+			srv := newTestServer(tc.sb, "")
+			w, gotBody := runTest(srv, http.MethodGet, "/readyz", "", nil)
 			if w.Code != tc.wantStatus {
 				t.Errorf("unexpected status code: got %d, want %d", w.Code, tc.wantStatus)
 			}
@@ -599,8 +602,8 @@ func TestInfo(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			srv := newTestServer(tc.sb)
-			w, gotBody := runTest(srv, http.MethodGet, "/info", nil)
+			srv := newTestServer(tc.sb, "")
+			w, gotBody := runTest(srv, http.MethodGet, "/info", "", nil)
 			if w.Code != tc.wantStatus {
 				t.Errorf("unexpected status code: got %d, want %d", w.Code, tc.wantStatus)
 			}
