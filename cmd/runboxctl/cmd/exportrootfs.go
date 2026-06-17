@@ -108,6 +108,14 @@ func runExportRootFS(cmd *cobra.Command, _ []string) error {
 					}
 				}
 
+				for _, d := range []string{"null", "zero", "urandom"} {
+					p := filepath.Join(dest, "dev", d)
+					if err := os.WriteFile(p, nil, 0o644); err != nil {
+						log.Printf("failed to create /dev/%s mountpoint for %s %s: %v", d, entry.Name, version.Name, err)
+						return err
+					}
+				}
+
 				if err := os.WriteFile(destDigestFile, []byte(imageID), 0o644); err != nil {
 					log.Printf("failed to write digest file for %s %s: %v", entry.Name, version.Name, err)
 					return err

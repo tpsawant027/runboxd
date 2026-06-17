@@ -1,0 +1,38 @@
+name: go
+type: compiled
+filename: main.go
+default_version: "1.26"
+exec_cmd: go
+env:
+  GOPATH: "/go"
+  GOCACHE: "/opt/gocache"
+  GOTMPDIR: "/sandbox/.gotmp"
+  PATH: "/go:/usr/local/go/bin:/usr/local/bin:/usr/bin:/bin"
+limits:
+  min_memory_mib: 64
+  max_memory_mib: 256
+  min_timeout_seconds: 1
+  max_timeout_seconds: 10
+  max_pids: 64
+  workspace_size_mib: 64
+compile_limits:
+  memory_mib: 512
+  timeout_seconds: 10
+  max_pids: 64
+  max_cpus: 1
+  workspace_size_mib: 64
+setup:
+  - "GOCACHE=/opt/gocache go build std"
+versions:
+  "1.26":
+    base_image: golang:1.26-alpine
+    build_cmd:
+      [
+        "go",
+        "build",
+        "-o",
+        "/build/main",
+        "-ldflags=-s -w",
+        "/sandbox/main.go",
+      ]
+    run_cmd: ["/build/main"]

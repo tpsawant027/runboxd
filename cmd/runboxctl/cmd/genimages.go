@@ -37,6 +37,7 @@ type dockerfileData struct {
 	BuildCmd   string
 	RunCmdJSON string
 	Type       string
+	Setup      []string
 }
 
 const versionEntryImageNamePrefix = "runboxd-"
@@ -48,6 +49,9 @@ ENV BUILD_CMD={{.BuildCmd | printf "%q"}}
 RUN mkdir -p /input /sandbox
 COPY wrapper.sh /wrapper.sh
 RUN chmod +x /wrapper.sh
+{{- range .Setup}}
+RUN {{.}}
+{{- end}}
 ENTRYPOINT ["/wrapper.sh"]
 CMD {{.RunCmdJSON}}
 `))
@@ -161,9 +165,10 @@ func createDockerfile(langDir string, langName string, versionName string, versi
 	data := dockerfileData{
 		BaseImage: version.BaseImage,
 		Type:      spec.Type,
+		Setup:     spec.Setup,
 	}
 	if spec.Type == "compiled" {
-		data.BuildCmd = strings.Join(version.BuildCmd, " ")
+		data.BuildCmd = shellJoin(version.BuildCmd)
 	}
 	jsonBytes, err := json.Marshal(version.RunCmd)
 	if err != nil {
@@ -194,6 +199,14 @@ func createDockerfile(langDir string, langName string, versionName string, versi
 	}
 
 	return nil
+}
+
+func shellJoin(args []string) string {
+	q := make([]string, len(args))
+	for i, a := range args {
+		q[i] = "'" + strings.ReplaceAll(a, "'", `'\''`) + "'"
+	}
+	return strings.Join(q, " ")
 }
 
 func writeIfChanged(path string, content []byte, perm os.FileMode) (bool, error) {

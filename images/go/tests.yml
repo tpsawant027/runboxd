@@ -1,0 +1,27 @@
+language: go
+
+conformance:
+  timeout:
+    source: |
+      package main
+      import "time"
+      func main() { time.Sleep(60 * time.Second) }
+    timeout_ms: 5000
+  fs_escape:
+    source: |
+      package main
+      import ("log";"os")
+      func main(){ if err:=os.WriteFile("/oops.txt",[]byte("x"),0644);err!=nil{log.Fatal(err)} }
+    want_stderr_contains: "read-only file system"
+  compile_error:
+    source: |
+      func main() {}
+    want_stderr_contains: "expected 'package', found 'func'"
+
+smoke:
+  - name: hello
+    source: |
+      package main
+      import "fmt"
+      func main() { fmt.Println("Hello, World!") }
+    want_stdout: "Hello, World!\n"

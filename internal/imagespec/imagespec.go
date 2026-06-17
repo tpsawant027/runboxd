@@ -25,6 +25,7 @@ type ImageSpec struct {
 	Env            map[string]string  `yaml:"env,omitempty"`
 	Limits         Limits             `yaml:"limits"`
 	CompileLimits  CompileLimits      `yaml:"compile_limits,omitempty"`
+	Setup          []string           `yaml:"setup,omitempty"`
 	Versions       map[string]Version `yaml:"versions"`
 }
 
