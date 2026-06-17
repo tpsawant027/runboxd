@@ -19,7 +19,7 @@ import (
 func TestRun(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
 	defer cancel()
-	sb := newTestSandbox(t)
+	sb := NewTestSandboxFromEnv(t)
 
 	cases := []struct {
 		name          string
@@ -88,7 +88,7 @@ public class Main {
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			skipUnsupportedOnNsjail(t, tc.runSpec.Language)
+			SkipUnsupportedOnNsjail(t, tc.runSpec.Language)
 			got, err := sb.Run(ctx, tc.runSpec)
 			if err != nil {
 				t.Fatalf("Run: %v", err)
@@ -101,7 +101,7 @@ public class Main {
 func TestRunStdin(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
 	defer cancel()
-	sb := newTestSandbox(t)
+	sb := NewTestSandboxFromEnv(t)
 
 	cases := []struct {
 		name          string
@@ -137,7 +137,7 @@ func TestRunStdin(t *testing.T) {
 func TestRunRuntimeError(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
 	defer cancel()
-	sb := newTestSandbox(t)
+	sb := NewTestSandboxFromEnv(t)
 
 	cases := []struct {
 		name               string
@@ -213,7 +213,7 @@ public class Main {
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			skipUnsupportedOnNsjail(t, tc.runSpec.Language)
+			SkipUnsupportedOnNsjail(t, tc.runSpec.Language)
 			got, err := sb.Run(ctx, tc.runSpec)
 			if err != nil {
 				t.Fatalf("run: %v", err)
@@ -226,7 +226,7 @@ public class Main {
 func TestRunCompileError(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
 	defer cancel()
-	sb := newTestSandbox(t)
+	sb := NewTestSandboxFromEnv(t)
 
 	cases := []struct {
 		name               string
@@ -290,7 +290,7 @@ public class Oops {
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			skipUnsupportedOnNsjail(t, tc.runSpec.Language)
+			SkipUnsupportedOnNsjail(t, tc.runSpec.Language)
 			got, err := sb.Run(ctx, tc.runSpec)
 			if err != nil {
 				t.Fatalf("run: %v", err)
@@ -303,7 +303,7 @@ public class Oops {
 func TestRunTimeout(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
 	defer cancel()
-	sb := newTestSandbox(t)
+	sb := NewTestSandboxFromEnv(t)
 
 	cases := []struct {
 		name          string
@@ -348,17 +348,18 @@ func TestRunOOM(t *testing.T) {
 		if !cgroupsActive() {
 			t.Skip("nsjail cgroups unavailable (no delegation); OOM needs cgroup memory.max")
 		}
-		sb = newNsjailTestSandbox(t)
+		sb = NewTestSandbox(t, "nsjail")
 	default:
-		ds := newDockerTestSandbox(t)
+		ds := NewTestSandbox(t, "docker")
+		dsb := ds.(*DockerSandbox)
 		// OOM kill requires Docker swap limit support. Without it Docker ignores
 		// --memory-swap and the container spills to the swap partition instead of
 		// being killed. Ask the daemon directly rather than guessing from cgroup paths.
-		daemonInfo, err := ds.client.Info(ctx, client.InfoOptions{})
+		daemonInfo, err := dsb.client.Info(ctx, client.InfoOptions{})
 		if err != nil || !daemonInfo.Info.SwapLimit {
 			t.Skip("docker swap limits not supported on this system; skipping OOM test")
 		}
-		sb = ds
+		sb = dsb
 	}
 
 	cases := []struct {
@@ -395,7 +396,7 @@ func TestRunOOM(t *testing.T) {
 func TestRunFilesystem(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
 	defer cancel()
-	sb := newTestSandbox(t)
+	sb := NewTestSandboxFromEnv(t)
 
 	cases := []struct {
 		name          string
@@ -453,7 +454,7 @@ except (PermissionError, OSError):
 func TestRunWorkspaceFiles(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
 	defer cancel()
-	sb := newTestSandbox(t)
+	sb := NewTestSandboxFromEnv(t)
 
 	rs := RunSpec{
 		Language: "python",
@@ -484,7 +485,7 @@ with open("data/in.txt") as f:
 func TestRunConcurrency(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
 	defer cancel()
-	sb := newDockerTestSandbox(t)
+	sb := NewTestSandbox(t, "docker")
 
 	const numRuns = 5
 
@@ -540,23 +541,24 @@ func waitForManagedContainer(ctx context.Context, t *testing.T, sb *DockerSandbo
 func TestReapOrphansRemovesOrphan(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
 	defer cancel()
-	sb := newDockerTestSandbox(t)
+	sb := NewTestSandbox(t, "docker")
+	dsb := sb.(*DockerSandbox)
 
-	resp, err := sb.client.ContainerCreate(ctx, client.ContainerCreateOptions{
+	resp, err := dsb.client.ContainerCreate(ctx, client.ContainerCreateOptions{
 		Config: &container.Config{Labels: map[string]string{managedLabel: "1"}},
-		Image:  anyImage(t, sb),
+		Image:  anyImage(t, dsb),
 	})
 	if err != nil {
 		t.Fatalf("create orphan: %v", err)
 	}
 	// Safety net if the reap below fails to remove it.
 	t.Cleanup(func() {
-		sb.client.ContainerRemove(context.Background(), resp.ID, client.ContainerRemoveOptions{Force: true})
+		dsb.client.ContainerRemove(context.Background(), resp.ID, client.ContainerRemoveOptions{Force: true})
 	})
 
-	sb.reapOrphans(ctx, 0)
+	dsb.reapOrphans(ctx, 0)
 
-	if _, err := sb.client.ContainerInspect(ctx, resp.ID, client.ContainerInspectOptions{}); err == nil {
+	if _, err := dsb.client.ContainerInspect(ctx, resp.ID, client.ContainerInspectOptions{}); err == nil {
 		t.Fatal("orphan still present after reap")
 	} else if !errdefs.IsNotFound(err) {
 		t.Fatalf("inspect after reap: want not-found, got %v", err)
@@ -566,7 +568,8 @@ func TestReapOrphansRemovesOrphan(t *testing.T) {
 func TestReapOrphansSparesLive(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
 	defer cancel()
-	sb := newDockerTestSandbox(t)
+	sb := NewTestSandbox(t, "docker")
+	dsb := sb.(*DockerSandbox)
 
 	resultCh := make(chan RunResult, 1)
 	errCh := make(chan error, 1)
@@ -582,8 +585,8 @@ func TestReapOrphansSparesLive(t *testing.T) {
 		resultCh <- res
 	}()
 
-	waitForManagedContainer(ctx, t, sb)
-	sb.ReapOrphans(ctx) // real reapMaxAge (1m): the seconds-old live container is spared
+	waitForManagedContainer(ctx, t, dsb)
+	dsb.ReapOrphans(ctx) // real reapMaxAge (1m): the seconds-old live container is spared
 
 	select {
 	case res := <-resultCh:

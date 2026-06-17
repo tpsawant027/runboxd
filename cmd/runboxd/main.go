@@ -5,6 +5,7 @@ package main
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"os"
@@ -43,20 +44,14 @@ func run() error {
 
 	pool := api.NewWorkerPool(cfg.WorkerPoolSize, cfg.MaxQueueSize)
 
-	var sb sandbox.Sandbox
+	sandboxCfg, err := getSandboxConfig(cfg)
+	if err != nil {
+		return err
+	}
 
-	if cfg.SandboxBackend == "nsjail" {
-		var err error
-		sb, err = sandbox.NewNsjailSandbox(cfg.RegistryPath, cfg.NsjailPath, cfg.RootfsPath, cfg.CgroupV2Mount, logger)
-		if err != nil {
-			return err
-		}
-	} else {
-		var err error
-		sb, err = sandbox.NewDockerSandbox(cfg.RegistryPath, logger)
-		if err != nil {
-			return err
-		}
+	sb, err := sandbox.New(sandboxCfg, logger)
+	if err != nil {
+		return err
 	}
 	defer sb.Close()
 
@@ -99,6 +94,22 @@ func run() error {
 	}
 	logger.Info("shutdown complete")
 	return nil
+}
+
+func getSandboxConfig(cfg *config.Config) (sandbox.SandboxConfig, error) {
+	switch cfg.SandboxBackend {
+	case "docker":
+		return sandbox.DockerSandboxConfig{RegistryPath: cfg.RegistryPath}, nil
+	case "nsjail":
+		return sandbox.NsjailSandboxConfig{
+			RegistryPath:   cfg.RegistryPath,
+			NsjailPath:     cfg.NsjailPath,
+			RootfsRoot:     cfg.RootfsPath,
+			CgroupOverride: cfg.CgroupV2Mount,
+		}, nil
+	default:
+		return nil, fmt.Errorf("unsupported sandbox backend: %s", cfg.SandboxBackend)
+	}
 }
 
 func reapLoop(ctx context.Context, sb sandbox.Reaper) {

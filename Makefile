@@ -6,7 +6,7 @@ LOAD_DURATION ?= 15s
 
 COVER_PROFILE ?= cover.out
 
-.PHONY: build run test cover integration integration-nsjail load lint clean gen-lock gen-images images rootfs adversarial adversarial-nsjail
+.PHONY: build run test cover integration integration-nsjail load lint clean gen-lock gen-images images rootfs adversarial adversarial-nsjail conformance conformance-nsjail
 build:
 	go build -o $(BINARY) ./cmd/runboxd
 run: build
@@ -24,7 +24,6 @@ gen-images:
 	go run ./cmd/runboxctl gen-images --image-dir ./images --lockfile ./images.lock.yml --registry ./language_registry.yml
 images: gen-images
 	go run ./cmd/runboxctl build-images --image-dir ./images --registry ./language_registry.yml
-# Export each built image to a flat rootfs tree (for the nsjail backend's --chroot).
 rootfs: images
 	-chmod -R u+w _rootfs 2>/dev/null
 	go run ./cmd/runboxctl export-rootfs --registry ./language_registry.yml --rootfs-dir ./_rootfs
@@ -35,9 +34,13 @@ integration-nsjail: rootfs
 	cd internal/sandbox && systemd-run --user --scope -p Delegate=yes env SANDBOX_BACKEND=nsjail /tmp/runboxd-sandbox.test -test.run TestRun -test.timeout 5m
 adversarial: images
 	go test -tags=adversarial -race -timeout 5m ./internal/sandbox -run TestAdv
-# Same containment suite against the nsjail backend (its acceptance gate). Host-native nsjail + exported rootfs.
 adversarial-nsjail: rootfs
 	SANDBOX_BACKEND=nsjail go test -tags=adversarial -race -timeout 5m ./internal/sandbox -run TestAdv
+conformance: images
+	go test -tags=conformance -race -timeout 5m ./internal/langtest -run TestConformance
+conformance-nsjail: rootfs
+	go test -c -race -tags=conformance -o /tmp/runboxd-langtest.test ./internal/langtest
+	cd internal/langtest && systemd-run --user --scope -p Delegate=yes env SANDBOX_BACKEND=nsjail /tmp/runboxd-langtest.test -test.run TestConformance -test.timeout 5m
 # Load test the running server (start it first, e.g. `make run`). Sweeps a few
 # request rates and reports latency + the status-code split per rate.
 # Override: make load LOAD_RATES="10 100" LOAD_DURATION=30s

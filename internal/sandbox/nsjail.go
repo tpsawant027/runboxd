@@ -123,7 +123,19 @@ var (
 	_ Pinger   = (*NsjailSandbox)(nil)
 )
 
-func NewNsjailSandbox(registryPath, nsjailPath, rootfsRoot, cgroupOverride string, logger *slog.Logger) (*NsjailSandbox, error) {
+type NsjailSandboxConfig struct {
+	RegistryPath   string
+	NsjailPath     string
+	RootfsRoot     string
+	CgroupOverride string
+}
+
+var _ SandboxConfig = (*NsjailSandboxConfig)(nil)
+
+func (c NsjailSandboxConfig) sandboxConfig() {}
+
+func NewNsjailSandbox(cfg NsjailSandboxConfig, logger *slog.Logger) (*NsjailSandbox, error) {
+	nsjailPath := cfg.NsjailPath
 	if nsjailPath == "" {
 		var err error
 		nsjailPath, err = exec.LookPath("nsjail")
@@ -132,7 +144,7 @@ func NewNsjailSandbox(registryPath, nsjailPath, rootfsRoot, cgroupOverride strin
 		}
 	}
 
-	cgroupMount, reason := delegatedCgroupMount(cgroupOverride)
+	cgroupMount, reason := delegatedCgroupMount(cfg.CgroupOverride)
 	if cgroupMount == "" {
 		logger.Warn("cgroup v2 limits unavailable; falling back to rlimit_as", "reason", reason)
 	} else {
@@ -140,14 +152,14 @@ func NewNsjailSandbox(registryPath, nsjailPath, rootfsRoot, cgroupOverride strin
 	}
 
 	// nsjail resolves bind-mount source paths at mount time, after it has set up its
-	// own mount namespace — a relative rootfs source is not reliably resolvable there
+	// own mount namespace - a relative rootfs source is not reliably resolvable there
 	// and fails with "Failed to mount mandatory point: '/'". Pin it to an absolute path.
-	rootfsRoot, err := filepath.Abs(rootfsRoot)
+	rootfsRoot, err := filepath.Abs(cfg.RootfsRoot)
 	if err != nil {
 		return nil, fmt.Errorf("resolving rootfs root %q to absolute path: %w", rootfsRoot, err)
 	}
 
-	registry, err := registry.Load(registryPath)
+	registry, err := registry.Load(cfg.RegistryPath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to load registry: %w", err)
 	}

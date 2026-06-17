@@ -1,0 +1,61 @@
+language: java
+
+conformance:
+  timeout:
+    source: |
+      public class Main {
+        public static void main(String[] args) { while (true) {} }
+      }
+    timeout_ms: 2000
+  fs_escape:
+    source: |
+      import java.io.FileOutputStream;
+      public class Main {
+        public static void main(String[] args) throws Exception {
+          new FileOutputStream("/oops.txt"); // outside workspace, uncaught
+        }
+      }
+    want_stderr_contains: "Read-only file system"
+  compile_error:
+    source: |
+      public class Main {
+        public static void main(String[] args) {
+          System.out.println("missing semicolon")
+        }
+      }
+    want_stderr_contains: "error:"
+
+smoke:
+  - name: hello
+    source: |
+      public class Main {
+        public static void main(String[] args) { System.out.println("hi"); }
+      }
+    want_stdout: "hi\n"
+  - name: deliberate_error_surfaces
+    source: |
+      public class Main {
+        public static void main(String[] args) {
+          throw new RuntimeException("boom");
+        }
+      }
+    want_status: runtime_error
+    want_stderr_contains: "boom"
+  - name: direct-memory-oom
+    source: |
+      import java.nio.ByteBuffer;
+      import java.util.ArrayList;
+      import java.util.List;
+      public class Main {
+        public static void main(String[] args) {
+          // Direct buffers are JVM-tracked via MaxDirectMemorySize (≈ -Xmx,
+          // derived from the injected -XX:MaxRAM), so exhausting them throws a
+          // graceful OutOfMemoryError (runtime_error) — the JVM perceiving and
+          // self-limiting to its budget — NOT a cgroup kill.
+          List<ByteBuffer> bufs = new ArrayList<>();
+          while (true) bufs.add(ByteBuffer.allocateDirect(64 * 1024 * 1024));
+        }
+      }
+    memory_bytes: 134217728 # 128 MiB (java min)
+    want_status: runtime_error
+    want_stderr_contains: "OutOfMemoryError"

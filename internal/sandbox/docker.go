@@ -110,8 +110,16 @@ var (
 	_ Reaper   = (*DockerSandbox)(nil)
 )
 
+type DockerSandboxConfig struct {
+	RegistryPath string
+}
+
+var _ SandboxConfig = (*DockerSandboxConfig)(nil)
+
+func (c DockerSandboxConfig) sandboxConfig() {}
+
 // TODO: background-pull many images and gate /readyz instead of blocking.
-func NewDockerSandbox(registryPath string, logger *slog.Logger) (*DockerSandbox, error) {
+func NewDockerSandbox(cfg DockerSandboxConfig, logger *slog.Logger) (*DockerSandbox, error) {
 	cli, err := client.New(client.FromEnv)
 	if err != nil {
 		return nil, err
@@ -122,7 +130,7 @@ func NewDockerSandbox(registryPath string, logger *slog.Logger) (*DockerSandbox,
 			_ = cli.Close()
 		}
 	}()
-	registry, err := registry.Load(registryPath)
+	registry, err := registry.Load(cfg.RegistryPath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to load registry: %w", err)
 	}

@@ -77,6 +77,11 @@ type LangSpec struct {
 	Limits   LangLimits
 }
 
+// SandboxConfig is a marker interface for configuration structs used to initialize a Sandbox.
+type SandboxConfig interface {
+	sandboxConfig()
+}
+
 // Sandbox isolates and runs untrusted code.
 type Sandbox interface {
 	Run(ctx context.Context, spec RunSpec) (RunResult, error)

@@ -1,0 +1,46 @@
+language: c
+
+conformance:
+  oom:
+    source: |
+      #include <stdlib.h>
+      #include <string.h>
+      #include <stdio.h>
+      int main(int argc, char **argv) {
+        size_t n = 2UL << 30;                 /* 2 GiB, far above the 64 MiB cap */
+        volatile char *p = malloc(n);
+        if (!p) return 1;
+        memset((void *)p, (char)argc, n);
+        putchar(p[n - 1]);
+        return 0;
+      }
+    memory_bytes: 67108864 # 64 MiB cap
+  timeout:
+    source: |
+      int main(void) { for (;;) {} }
+    timeout_ms: 1000
+  fs_escape:
+    source: |
+      #include <stdio.h>
+      int main(void) {
+        FILE *f = fopen("/oops.txt", "w");   /* outside workspace */
+        if (!f) { perror("open"); return 1; }
+        return 0;
+      }
+    want_stderr_contains: "Read-only file system"
+  compile_error:
+    source: |
+      int main() { return }
+    want_stderr_contains: "error:"
+
+smoke:
+  - name: hello
+    source: |
+      #include <stdio.h>
+      int main(void) { printf("hi\n"); return 0; }
+    want_stdout: "hi\n"
+  - name: deliberate_segfault_surfaces
+    source: |
+      int main(void) { int *p = 0; *p = 42; return 0; }
+    want_status: runtime_error
+    want_exit_code: 139 # 128 + SIGSEGV(11)

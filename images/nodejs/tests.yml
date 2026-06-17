@@ -1,0 +1,34 @@
+language: nodejs
+
+conformance:
+  oom:
+    source: |
+      // off-heap Buffers bypass the V8 heap limit -> charged to the cgroup
+      const chunks = [];
+      while (true) chunks.push(Buffer.alloc(64 * 1024 * 1024).fill(1));
+    memory_bytes: 67108864 # 64 MiB cap
+  timeout:
+    source: |
+      while (true) {}
+    timeout_ms: 1000
+  fs_escape:
+    source: |
+      require("fs").writeFileSync("/oops.txt", "x"); // outside workspace, uncaught
+    want_stderr_contains: "read-only file system"
+
+smoke:
+  - name: hello
+    source: |
+      console.log("hi");
+    want_stdout: "hi\n"
+  - name: stdin_echo
+    source: |
+      process.stdout.write(require("fs").readFileSync(0));
+    stdin: "abc\n"
+    want_stdout: "abc\n"
+    want_exit_code: 0
+  - name: deliberate_error_surfaces
+    source: |
+      throw new Error("boom");
+    want_status: runtime_error
+    want_stderr_contains: "boom"

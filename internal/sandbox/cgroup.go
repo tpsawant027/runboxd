@@ -44,7 +44,7 @@ func setupDelegatedCgroup(override string) cgroupState {
 		mount = detected
 	}
 	if !cgroupControllersAvailable(mount) {
-		return cgroupState{reason: fmt.Errorf("cgroup %q does not expose memory+pids controllers", mount)}
+		return cgroupState{reason: fmt.Errorf("cgroup %q does not expose memory+pids+cpu controllers", mount)}
 	}
 	if err := seatSelfInLeaf(mount); err != nil {
 		return cgroupState{reason: fmt.Errorf("cannot seat launcher under %q: %w", mount, err)}
@@ -74,7 +74,7 @@ func cgroupControllersAvailable(dir string) bool {
 		return false
 	}
 	controllers := strings.Fields(string(data))
-	return slices.Contains(controllers, "memory") && slices.Contains(controllers, "pids")
+	return slices.Contains(controllers, "memory") && slices.Contains(controllers, "pids") && slices.Contains(controllers, "cpu")
 }
 
 func seatSelfInLeaf(mount string) error {
