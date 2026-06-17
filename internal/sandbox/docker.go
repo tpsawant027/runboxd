@@ -25,15 +25,17 @@ import (
 )
 
 const (
-	MaxPids               = 100
-	MinTimeout            = 1 * time.Second
-	MaxTimeout            = 10 * time.Second
-	MinMemoryBytes        = 64 * 1024 * 1024  // 64 MiB
-	MaxMemoryBytes        = 256 * 1024 * 1024 // 256 MiB
-	DefaultMaxCPUs        = 0.5
-	MaxOutputBytes        = 1 * 1024 * 1024 // 1 MiB per stream
-	MaxLogConfigFileSize  = "3m"
-	MaxLogConfigFileCount = "1"
+	MaxPids                 = 100
+	MinTimeout              = 1 * time.Second
+	MaxTimeout              = 10 * time.Second
+	MinMemoryBytes          = 64 * 1024 * 1024  // 64 MiB
+	MaxMemoryBytes          = 256 * 1024 * 1024 // 256 MiB
+	DefaultMaxCPUs          = 0.5
+	MaxOutputBytes          = 1 * 1024 * 1024 // 1 MiB per stream
+	MaxLogConfigFileSize    = "3m"
+	MaxLogConfigFileCount   = "1"
+	DefaultWorkspaceSizeMiB = 10
+	DefaultTmpSizeMiB       = 5
 
 	ImagePullTimeout = 2 * time.Minute
 )
@@ -447,12 +449,14 @@ func resolveLangLimits(l imagespec.Limits) LangLimits {
 	}
 
 	return LangLimits{
-		MinTimeout:     minTimeout,
-		MaxTimeout:     maxTimeout,
-		MinMemoryBytes: minMemory,
-		MaxMemoryBytes: maxMemory,
-		MaxPids:        valueWithDefault(int64(l.MaxPids), MaxPids),
-		MaxCPUs:        valueWithDefault(l.MaxCPUs, DefaultMaxCPUs),
+		MinTimeout:         minTimeout,
+		MaxTimeout:         maxTimeout,
+		MinMemoryBytes:     minMemory,
+		MaxMemoryBytes:     maxMemory,
+		MaxPids:            valueWithDefault(int64(l.MaxPids), MaxPids),
+		MaxCPUs:            valueWithDefault(l.MaxCPUs, DefaultMaxCPUs),
+		WorkspaceSizeBytes: valueWithDefault(int64(l.WorkspaceSizeMiB), DefaultWorkspaceSizeMiB) * 1024 * 1024,
+		TmpSizeBytes:       valueWithDefault(int64(l.TmpSizeMiB), DefaultTmpSizeMiB) * 1024 * 1024,
 	}
 }
 
@@ -470,6 +474,14 @@ func validateLangLimits(limits LangLimits) error {
 	// backend; NaN/+Inf slip past a bare `<= 0` and convert to a garbage int64.
 	if !(limits.MaxCPUs > 0) || math.IsInf(limits.MaxCPUs, 1) {
 		return fmt.Errorf("MaxCPUs must be a positive, finite number")
+	}
+
+	if limits.WorkspaceSizeBytes <= 0 {
+		return fmt.Errorf("WorkspaceSizeBytes must be positive")
+	}
+
+	if limits.TmpSizeBytes <= 0 {
+		return fmt.Errorf("TmpSizeBytes must be positive")
 	}
 
 	if limits.MinTimeout > limits.MaxTimeout {
@@ -550,8 +562,8 @@ func getHostConfig(spec RunSpec, ds dockerSpec, inputSrc string) *container.Host
 		NetworkMode:    "none",
 		ReadonlyRootfs: true,
 		Tmpfs: map[string]string{
-			sandboxDir: "size=10m,noexec,mode=1777",
-			"/tmp":     "size=5m,noexec,mode=1777",
+			sandboxDir: fmt.Sprintf("size=%d,noexec,mode=1777", ds.limits.WorkspaceSizeBytes),
+			"/tmp":     fmt.Sprintf("size=%d,noexec,mode=1777", ds.limits.TmpSizeBytes),
 		},
 		Mounts: []mount.Mount{
 			{

@@ -145,6 +145,8 @@ func fillUnsetLangLimits(input LangLimits) LangLimits {
 	input.MaxMemoryBytes = valueWithDefault(input.MaxMemoryBytes, MaxMemoryBytes)
 	input.MaxPids = valueWithDefault(input.MaxPids, MaxPids)
 	input.MaxCPUs = valueWithDefault(input.MaxCPUs, DefaultMaxCPUs)
+	input.WorkspaceSizeBytes = valueWithDefault(input.WorkspaceSizeBytes, DefaultWorkspaceSizeMiB*1024*1024)
+	input.TmpSizeBytes = valueWithDefault(input.TmpSizeBytes, DefaultTmpSizeMiB*1024*1024)
 	return input
 }
 
@@ -160,12 +162,14 @@ func TestResolveLangLimits(t *testing.T) {
 			name:  "all unset",
 			input: imagespec.Limits{},
 			want: LangLimits{
-				MinTimeout:     MinTimeout,
-				MaxTimeout:     MaxTimeout,
-				MinMemoryBytes: MinMemoryBytes,
-				MaxMemoryBytes: MaxMemoryBytes,
-				MaxPids:        MaxPids,
-				MaxCPUs:        DefaultMaxCPUs,
+				MinTimeout:         MinTimeout,
+				MaxTimeout:         MaxTimeout,
+				MinMemoryBytes:     MinMemoryBytes,
+				MaxMemoryBytes:     MaxMemoryBytes,
+				MaxPids:            MaxPids,
+				MaxCPUs:            DefaultMaxCPUs,
+				WorkspaceSizeBytes: DefaultWorkspaceSizeMiB * 1024 * 1024,
+				TmpSizeBytes:       DefaultTmpSizeMiB * 1024 * 1024,
 			},
 		},
 		{

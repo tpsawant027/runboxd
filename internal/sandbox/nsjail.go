@@ -30,9 +30,6 @@ const (
 	nsjailNobodyUID = "65534"
 	nsjailNobodyGID = "65534"
 
-	sandboxTmpfsSize = 10 * 1024 * 1024 // 10 MiB
-	tmpTmpfsSize     = 5 * 1024 * 1024  // 5 MiB
-
 	nsjailKillGrace = 2 * time.Second
 
 	nsjailRunFsizeMiB     = 16
@@ -366,8 +363,8 @@ func writeNsjailConfig(ns nsjailSpec, timeout time.Duration, memBytes int64, cgr
 		LogPath:           filepath.Join(tmpDir, nsjailRunLogName),
 		Rootfs:            ns.rootfs,
 		InputDir:          filepath.Join(tmpDir, inputDir),
-		SandboxOpts:       fmt.Sprintf("size=%d", sandboxTmpfsSize),
-		TmpOpts:           fmt.Sprintf("size=%d", tmpTmpfsSize),
+		SandboxOpts:       fmt.Sprintf("size=%d", ns.limits.WorkspaceSizeBytes),
+		TmpOpts:           fmt.Sprintf("size=%d", ns.limits.TmpSizeBytes),
 		CgroupMount:       cgroupMount,
 		CgroupMemMax:      memBytes,
 		CgroupPidsMax:     ns.limits.MaxPids,
@@ -388,6 +385,8 @@ func writeNsjailConfig(ns nsjailSpec, timeout time.Duration, memBytes int64, cgr
 		cfgData.LogPath = filepath.Join(tmpDir, nsjailBuildLogName)
 		cfgData.FsizeMB = nsjailCompileFsizeMiB
 		cfgData.Nofile = nsjailCompileNofile
+		cfgData.SandboxOpts = fmt.Sprintf("size=%d", ns.compileLimits.WorkspaceSizeBytes)
+		cfgData.TmpOpts = fmt.Sprintf("size=%d", ns.compileLimits.TmpSizeBytes)
 		cfgData.Cmd = ns.buildCmd
 	}
 
@@ -433,10 +432,12 @@ func injectJVMFlags(cmd []string, memBytes int64, maxCPUs float64) []string {
 
 func resolveLangCompileLimits(l imagespec.CompileLimits) LangCompileLimits {
 	return LangCompileLimits{
-		MemoryBytes: valueWithDefault(int64(l.MemoryMiB)*1024*1024, MaxMemoryBytes),
-		Timeout:     valueWithDefault(time.Duration(l.TimeoutSeconds)*time.Second, MaxTimeout),
-		MaxPids:     valueWithDefault(int64(l.MaxPids), MaxPids),
-		MaxCPUs:     valueWithDefault(l.MaxCPUs, DefaultMaxCPUs),
+		MemoryBytes:        valueWithDefault(int64(l.MemoryMiB)*1024*1024, MaxMemoryBytes),
+		Timeout:            valueWithDefault(time.Duration(l.TimeoutSeconds)*time.Second, MaxTimeout),
+		MaxPids:            valueWithDefault(int64(l.MaxPids), MaxPids),
+		MaxCPUs:            valueWithDefault(l.MaxCPUs, DefaultMaxCPUs),
+		WorkspaceSizeBytes: valueWithDefault(int64(l.WorkspaceSizeMiB), DefaultWorkspaceSizeMiB) * 1024 * 1024,
+		TmpSizeBytes:       valueWithDefault(int64(l.TmpSizeMiB), DefaultTmpSizeMiB) * 1024 * 1024,
 	}
 }
 
@@ -454,6 +455,12 @@ func validateLangCompileLimits(limits LangCompileLimits) error {
 	// backend; NaN/+Inf slip past a bare `<= 0` and convert to a garbage int64.
 	if !(limits.MaxCPUs > 0) || math.IsInf(limits.MaxCPUs, 1) {
 		return fmt.Errorf("MaxCPUs must be a positive, finite number")
+	}
+	if limits.WorkspaceSizeBytes <= 0 {
+		return fmt.Errorf("WorkspaceSizeBytes must be positive")
+	}
+	if limits.TmpSizeBytes <= 0 {
+		return fmt.Errorf("TmpSizeBytes must be positive")
 	}
 	return nil
 }

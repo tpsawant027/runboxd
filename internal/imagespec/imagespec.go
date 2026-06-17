@@ -29,19 +29,23 @@ type ImageSpec struct {
 }
 
 type Limits struct {
-	MinMemoryMiB      int     `yaml:"min_memory_mib"`
-	MaxMemoryMiB      int     `yaml:"max_memory_mib"`
-	MinTimeoutSeconds int     `yaml:"min_timeout_seconds"`
-	MaxTimeoutSeconds int     `yaml:"max_timeout_seconds"`
-	MaxPids           int     `yaml:"max_pids"`
-	MaxCPUs           float64 `yaml:"max_cpus"`
+	MinMemoryMiB      int     `yaml:"min_memory_mib,omitempty"`
+	MaxMemoryMiB      int     `yaml:"max_memory_mib,omitempty"`
+	MinTimeoutSeconds int     `yaml:"min_timeout_seconds,omitempty"`
+	MaxTimeoutSeconds int     `yaml:"max_timeout_seconds,omitempty"`
+	MaxPids           int     `yaml:"max_pids,omitempty"`
+	MaxCPUs           float64 `yaml:"max_cpus,omitempty"`
+	WorkspaceSizeMiB  int     `yaml:"workspace_size_mib,omitempty"`
+	TmpSizeMiB        int     `yaml:"tmp_size_mib,omitempty"`
 }
 
 type CompileLimits struct {
-	MemoryMiB      int     `yaml:"memory_mib"`
-	TimeoutSeconds int     `yaml:"timeout_seconds"`
-	MaxPids        int     `yaml:"max_pids"`
-	MaxCPUs        float64 `yaml:"max_cpus"`
+	MemoryMiB        int     `yaml:"memory_mib,omitempty"`
+	TimeoutSeconds   int     `yaml:"timeout_seconds,omitempty"`
+	MaxPids          int     `yaml:"max_pids,omitempty"`
+	MaxCPUs          float64 `yaml:"max_cpus,omitempty"`
+	WorkspaceSizeMiB int     `yaml:"workspace_size_mib,omitempty"`
+	TmpSizeMiB       int     `yaml:"tmp_size_mib,omitempty"`
 }
 
 type Version struct {
