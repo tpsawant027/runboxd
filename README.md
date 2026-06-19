@@ -9,8 +9,9 @@ happened, nothing more. It does not grade submissions, judge test cases, or
 interpret intent — those are concerns for whatever calls it (a programming judge
 or an agent runtime, for example).
 
-Supported languages: Python, Node.js, C, and Java. Compiled languages run in a
-two-stage compile-then-run jail.
+Languages are defined as configuration files — adding one means adding a single
+spec file. Python, Node.js, C, Java, and Go are included. Compiled languages
+run in a two-stage compile-then-run jail.
 
 ## How it works
 
@@ -44,7 +45,12 @@ Two things are pluggable by design:
   resource limits) that `make gen-images` compiles into the registry the daemon
   reads. Adding a language or version means adding a spec and rebuilding — the
   same spec produces both the Docker image and the nsjail rootfs, so it works on
-  either backend with no Go changes.
+  either backend with no Go changes. Each language can also ship its own tests in
+  a co-located `images/<lang>/tests.yml`: a closed **conformance** layer (checks
+  that OOM kills, timeouts, sandbox escapes, and compile errors are handled
+  correctly) and an open **smoke** layer (arbitrary input/output pairs authored
+  by the operator). `make conformance` and `make conformance-nsjail` run all of
+  them.
 
 Incoming requests are handled by a bounded worker pool. When the pool and its
 queue are full, further requests are rejected with HTTP 429 rather than queued
@@ -134,7 +140,15 @@ AUTH_ALLOW_UNAUTHENTICATED=true ./bin/runboxd
 
 # 3. In another shell:
 curl -s localhost:8080/info | jq
+
+# With AUTH_ALLOW_UNAUTHENTICATED=true:
 curl -s -XPOST localhost:8080/execute \
+  -H 'Content-Type: application/json' \
+  -d '{"language":"python","code":"print(1+1)"}'
+
+# With AUTH_TOKEN=dev-secret:
+curl -s -XPOST localhost:8080/execute \
+  -H 'Authorization: Bearer dev-secret' \
   -H 'Content-Type: application/json' \
   -d '{"language":"python","code":"print(1+1)"}'
 ```
@@ -173,6 +187,8 @@ timeout/memory/PIDs/CPU limits). `make gen-images` compiles those into
 | `make integration-nsjail` | end-to-end execution on the nsjail backend                           |
 | `make adversarial`        | containment/escape suite on Docker                                   |
 | `make adversarial-nsjail` | containment/escape suite on nsjail                                   |
+| `make conformance`        | per-language conformance and smoke tests on Docker                   |
+| `make conformance-nsjail` | per-language conformance and smoke tests on nsjail                   |
 | `make load`               | load sweep against a running server (vegeta)                         |
 | `make lint`               | `go vet ./...`                                                       |
 
@@ -183,6 +199,7 @@ cmd/runboxd/        # the daemon: server wiring and graceful shutdown
 cmd/runboxctl/      # build tooling: image generation, rootfs export, lockfile
 internal/api/       # HTTP handlers, DTOs, worker pool, auth middleware
 internal/sandbox/   # the Sandbox interface and the Docker and nsjail backends
+internal/langtest/  # conformance and smoke test runner (driven by make conformance)
 internal/config/    # environment-sourced configuration
 images/             # per-language image specs (source for the registry)
 ```
@@ -193,5 +210,4 @@ images/             # per-language image specs (source for the registry)
   builds.
 - A compile-once, run-many endpoint (run one program against several inputs
   without recompiling).
-- A per-language capacity table, to size deployments by language mix.
 - A simple web front-end for trying code interactively.
