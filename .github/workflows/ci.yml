@@ -34,3 +34,6 @@ jobs:
 
       - name: Integration tests
         run: make integration
+
+      - name: Conformance tests
+        run: make conformance
