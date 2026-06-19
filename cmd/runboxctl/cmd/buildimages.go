@@ -2,8 +2,10 @@ package cmd
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log"
+	"os"
 	"os/exec"
 	"path/filepath"
 	"time"
@@ -12,6 +14,8 @@ import (
 	"github.com/tpsawant027/runboxd/internal/registry"
 	"golang.org/x/sync/errgroup"
 )
+
+const imageCacheDir = ".image_cache"
 
 var buildImagesCmd = &cobra.Command{
 	Use:   "build-images",
@@ -52,6 +56,22 @@ func runBuildImages(cmd *cobra.Command, _ []string) error {
 
 				imageTag := version.Image
 				buildDir := filepath.Join(imageDir, entry.Name, version.Name)
+
+				hashFile := filepath.Join(imageCacheDir, entry.Name+"-"+version.Name+".hash")
+				currHash, err := os.ReadFile(hashFile)
+				if err != nil && !errors.Is(err, os.ErrNotExist) {
+					return err
+				}
+				newHash, err := contextHash(buildDir)
+				if err != nil {
+					log.Printf("failed to compute context hash for %s %s: %v", entry.Name, version.Name, err)
+					return err
+				}
+				if !noCache && len(currHash) > 0 {
+					if !shouldBuildImage(gctx, newHash, string(currHash), imageTag) {
+						return nil
+					}
+				}
 				args := []string{"build", "-t", imageTag}
 				if noCache {
 					args = append(args, "--no-cache")
@@ -62,6 +82,12 @@ func runBuildImages(cmd *cobra.Command, _ []string) error {
 					log.Printf("failed to build image for %s %s: %v\nOutput: %s", entry.Name, version.Name, err, string(output))
 					return err
 				}
+				if err := os.MkdirAll(imageCacheDir, 0o755); err != nil {
+					return fmt.Errorf("failed to create image cache directory: %w", err)
+				}
+				if err := os.WriteFile(hashFile, []byte(newHash), 0o644); err != nil {
+					return fmt.Errorf("failed to write context hash for %s %s: %w", entry.Name, version.Name, err)
+				}
 				log.Printf("successfully built image for %s %s in %s", entry.Name, version.Name, time.Since(startTime))
 				return nil
 			})
@@ -71,4 +97,18 @@ func runBuildImages(cmd *cobra.Command, _ []string) error {
 		return fmt.Errorf("failed to build all images: %w", err)
 	}
 	return nil
+}
+
+func shouldBuildImage(ctx context.Context, newHash, currHash, imageTag string) bool {
+	if newHash == currHash {
+		cmd := exec.CommandContext(ctx, "docker", "inspect", imageTag)
+		if err := cmd.Run(); err != nil {
+			log.Printf("image %s does not exist, will build", imageTag)
+			return true
+		}
+		log.Printf("image %s already exists and context hash matches, skipping build", imageTag)
+		return false
+	}
+	log.Printf("context hash for image %s has changed, will build", imageTag)
+	return true
 }

@@ -28,6 +28,7 @@ func init() {
 	rootCmd.AddCommand(exportRootFSCmd)
 
 	exportRootFSCmd.Flags().String("rootfs-dir", "_rootfs", "directory where the exported root filesystem tarballs will be written")
+	exportRootFSCmd.Flags().String("image-dir", "./images", "directory containing per-language image build contexts")
 	exportRootFSCmd.Flags().Bool("force", false, "re-export all rootfs even if the image digest is unchanged")
 }
 
@@ -37,6 +38,10 @@ func runExportRootFS(cmd *cobra.Command, _ []string) error {
 		return fmt.Errorf("failed to get flag: %w", err)
 	}
 	rootfsDir, err := cmd.Flags().GetString("rootfs-dir")
+	if err != nil {
+		return fmt.Errorf("failed to get flag: %w", err)
+	}
+	imageDir, err := cmd.Flags().GetString("image-dir")
 	if err != nil {
 		return fmt.Errorf("failed to get flag: %w", err)
 	}
@@ -56,14 +61,16 @@ func runExportRootFS(cmd *cobra.Command, _ []string) error {
 
 				dest := filepath.Join(rootfsDir, entry.Name, version.Name)
 				destDigestFile := dest + ".digest"
-				imageID, err := getImageID(gctx, version.Image)
+				buildDir := filepath.Join(imageDir, entry.Name, version.Name)
+
+				hash, err := contextHash(buildDir)
 				if err != nil {
-					log.Printf("failed to get image ID for %s %s: %v", entry.Name, version.Name, err)
+					log.Printf("failed to compute context hash for %s %s: %v", entry.Name, version.Name, err)
 					return err
 				}
 				if !force {
 					existingDigest, err := os.ReadFile(destDigestFile)
-					if err == nil && strings.TrimSpace(string(existingDigest)) == imageID && dirExistsAndNotEmpty(dest) {
+					if err == nil && strings.TrimSpace(string(existingDigest)) == hash && dirExistsAndNotEmpty(dest) {
 						log.Printf("rootfs for %s %s is up to date, skipping", entry.Name, version.Name)
 						return nil
 					}
@@ -116,7 +123,7 @@ func runExportRootFS(cmd *cobra.Command, _ []string) error {
 					}
 				}
 
-				if err := os.WriteFile(destDigestFile, []byte(imageID), 0o644); err != nil {
+				if err := os.WriteFile(destDigestFile, []byte(hash), 0o644); err != nil {
 					log.Printf("failed to write digest file for %s %s: %v", entry.Name, version.Name, err)
 					return err
 				}
@@ -159,19 +166,6 @@ func exportRootfs(gctx context.Context, containerID string, dest string, entry r
 	}
 
 	return nil
-}
-
-func getImageID(ctx context.Context, image string) (string, error) {
-	inspectCmd := exec.CommandContext(ctx, "docker", "image", "inspect", image, "--format", "{{.Id}}")
-	output, err := inspectCmd.Output()
-	if err != nil {
-		stderr := ""
-		if ee, ok := errors.AsType[*exec.ExitError](err); ok {
-			stderr = string(ee.Stderr)
-		}
-		return "", fmt.Errorf("failed to inspect image %s: %v\n%s", image, err, stderr)
-	}
-	return strings.TrimSpace(string(output)), nil
 }
 
 func dirExistsAndNotEmpty(path string) bool {
