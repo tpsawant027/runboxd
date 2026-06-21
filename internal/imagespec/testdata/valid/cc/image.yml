@@ -1,0 +1,13 @@
+name: cc
+type: compiled
+filename: main.c
+default_version: "13"
+exec_cmd: gcc
+compile_limits:
+  memory_mib: 512
+  timeout_seconds: 10
+versions:
+  "13":
+    base_image: gcc:13
+    build_cmd: ["gcc", "-O2", "-o", "/build/main", "/sandbox/main.c"]
+    run_cmd: ["/build/main"]

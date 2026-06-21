@@ -1,0 +1,4 @@
+name: python
+type: interpreted
+  filename: main.py        # bad indentation -> parse error
+default_version: "3.12"

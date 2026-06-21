@@ -1,0 +1,3 @@
+# python's value should be a map[version]digest, but it's a scalar here,
+# so strict decode into map[string]map[string]string fails.
+python: "sha256:aaaa1111"

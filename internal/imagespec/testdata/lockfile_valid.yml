@@ -1,0 +1,5 @@
+python:
+  "3.12": "sha256:aaaa1111"
+cc:
+  "13": "sha256:bbbb2222"
+  "14": "sha256:cccc3333"

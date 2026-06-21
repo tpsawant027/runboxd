@@ -2,6 +2,7 @@
 package imagespec
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
 	"io/fs"
@@ -75,16 +76,21 @@ func Load(dir string) ([]Entry, error) {
 		}
 		langDir := filepath.Join(dir, f.Name())
 		specPath := filepath.Join(langDir, SpecFilename)
-		if _, err := os.Stat(specPath); errors.Is(err, fs.ErrNotExist) {
-			continue
-		}
 		data, err := os.ReadFile(specPath)
 		if err != nil {
+			if errors.Is(err, fs.ErrNotExist) {
+				continue
+			}
 			return nil, fmt.Errorf("read %s: %w", specPath, err)
 		}
 		var spec ImageSpec
-		if err := yaml.Unmarshal(data, &spec); err != nil {
+		dec := yaml.NewDecoder(bytes.NewReader(data))
+		dec.KnownFields(true)
+		if err := dec.Decode(&spec); err != nil {
 			return nil, fmt.Errorf("parse %s: %w", specPath, err)
+		}
+		if err := validateSpec(spec); err != nil {
+			return nil, fmt.Errorf("validate %s: %w", specPath, err)
 		}
 		entries = append(entries, Entry{Dir: langDir, Spec: spec})
 	}
@@ -97,8 +103,52 @@ func LoadLockfile(path string) (Lockfile, error) {
 		return nil, fmt.Errorf("read lockfile %s: %w", path, err)
 	}
 	var lf Lockfile
-	if err := yaml.Unmarshal(data, &lf); err != nil {
+	dec := yaml.NewDecoder(bytes.NewReader(data))
+	if err := dec.Decode(&lf); err != nil {
 		return nil, fmt.Errorf("parse lockfile %s: %w", path, err)
 	}
 	return lf, nil
+}
+
+func validateSpec(spec ImageSpec) error {
+	if spec.Name == "" {
+		return errors.New("name is required")
+	}
+	if spec.Type == "" {
+		return errors.New("type is required")
+	}
+	if spec.Type != "interpreted" && spec.Type != "compiled" {
+		return errors.New("type must be either 'interpreted' or 'compiled'")
+	}
+	if spec.Filename == "" {
+		return errors.New("filename is required")
+	}
+	if spec.DefaultVersion == "" {
+		return errors.New("default_version is required")
+	}
+	if spec.ExecCmd == "" {
+		return errors.New("exec_cmd is required")
+	}
+	if len(spec.Versions) == 0 {
+		return errors.New("at least one version is required")
+	}
+	defaultVersionInVersions := false
+	for versionName, version := range spec.Versions {
+		if version.BaseImage == "" {
+			return fmt.Errorf("base_image is required for version %s", versionName)
+		}
+		if spec.Type == "compiled" && len(version.BuildCmd) == 0 {
+			return fmt.Errorf("build_cmd is required for version %s", versionName)
+		}
+		if len(version.RunCmd) == 0 {
+			return fmt.Errorf("run_cmd is required for version %s", versionName)
+		}
+		if versionName == spec.DefaultVersion {
+			defaultVersionInVersions = true
+		}
+	}
+	if !defaultVersionInVersions {
+		return fmt.Errorf("default_version %s is not defined in versions", spec.DefaultVersion)
+	}
+	return nil
 }

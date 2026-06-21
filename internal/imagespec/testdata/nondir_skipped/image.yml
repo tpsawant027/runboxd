@@ -1,0 +1,4 @@
+# A top-level image.yml file (not inside a language subdir).
+# Load iterates directory entries; this regular file is skipped by the
+# `if !f.IsDir() { continue }` branch and never read, so only python/ counts.
+name: ignored

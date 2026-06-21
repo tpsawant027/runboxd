@@ -1,0 +1,9 @@
+name: cc
+type: compiled
+filename: main.c
+default_version: "13"
+exec_cmd: gcc
+versions:
+  "13":
+    base_image: gcc:13
+    run_cmd: ["/build/main"]

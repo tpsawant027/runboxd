@@ -1,0 +1,8 @@
+name: python
+type: interpreted
+filename: main.py
+default_version: "3.12"
+versions:
+  "3.12":
+    base_image: python:3.12-alpine
+    run_cmd: ["python3", "/sandbox/main.py"]
