@@ -1,0 +1,18 @@
+language: testlang
+version: "1.0"
+
+conformance:
+  oom:
+    source: "allocate too much"
+    memory_bytes: 1024
+  compile_error:
+    source: "does not compile"
+
+smoke:
+  - name: hello
+    source: "print hi"
+    want_stdout: "hi\n"
+  - name: errcase
+    source: "raise"
+    want_status: runtime_error
+    want_stderr_contains: "boom"

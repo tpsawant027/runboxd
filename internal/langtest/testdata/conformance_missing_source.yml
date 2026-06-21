@@ -1,0 +1,7 @@
+language: testlang
+
+# source is checked before the per-key switch, so omitting it trips the
+# "missing required field 'source'" branch regardless of the capability.
+conformance:
+  oom:
+    memory_bytes: 1024

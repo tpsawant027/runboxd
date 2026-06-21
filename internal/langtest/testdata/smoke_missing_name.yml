@@ -1,0 +1,4 @@
+language: testlang
+
+smoke:
+  - source: "print hi"   # no name -> "missing required field 'name'"

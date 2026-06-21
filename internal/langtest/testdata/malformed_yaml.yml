@@ -1,0 +1,2 @@
+language: testlang
+  version: "1.0"        # bad indentation under a scalar -> parse error

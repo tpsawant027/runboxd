@@ -1,0 +1,6 @@
+language: testlang
+
+conformance:
+  oom:
+    source: "x"
+    memory_bytes: -1    # negative -> "memory_bytes must be > 0"

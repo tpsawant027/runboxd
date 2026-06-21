@@ -1,0 +1,6 @@
+language: testlang
+bogus_field: 1          # unknown top-level key -> strict decode error
+
+conformance:
+  compile_error:
+    source: "x"

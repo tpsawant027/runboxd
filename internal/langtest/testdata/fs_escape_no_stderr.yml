@@ -1,0 +1,6 @@
+language: testlang
+
+# fs_escape requires want_stderr_contains; omitting it -> "want_stderr_contains is required".
+conformance:
+  fs_escape:
+    source: "x"

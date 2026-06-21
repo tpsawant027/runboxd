@@ -1,0 +1,6 @@
+language: testlang
+
+conformance:
+  timeout:
+    source: "x"
+    timeout_ms: 0       # <= 0 -> "timeout_ms must be > 0"

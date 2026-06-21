@@ -1,0 +1,7 @@
+language: testlang
+
+# "bogus" decodes fine (conformance is a map with arbitrary keys) but is not in
+# CapabilityStatus -> validation error "unknown conformance test case key".
+conformance:
+  bogus:
+    source: "x"

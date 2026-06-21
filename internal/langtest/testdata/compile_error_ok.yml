@@ -1,0 +1,7 @@
+# compile_error is the one capability with no second required field: source alone
+# is valid. This fixture must LOAD CLEAN (wantErr false).
+language: testlang
+
+conformance:
+  compile_error:
+    source: "does not compile"

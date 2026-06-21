@@ -1,0 +1,7 @@
+language: testlang
+
+conformance:
+  oom:
+    source: "x"
+    memory_bytes: 1024
+    bogus: 1            # unknown key inside a ConformanceTestCase -> strict decode error

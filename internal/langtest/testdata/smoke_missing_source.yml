@@ -1,0 +1,5 @@
+language: testlang
+
+# name set (so it reaches the source check) -> "missing required field 'source'".
+smoke:
+  - name: hello

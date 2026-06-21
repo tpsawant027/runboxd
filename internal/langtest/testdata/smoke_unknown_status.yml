@@ -1,0 +1,6 @@
+language: testlang
+
+smoke:
+  - name: hello
+    source: "print hi"
+    want_status: bogus    # not in SmokeStatuses -> "unknown want_status"

@@ -1,0 +1,6 @@
+language: testlang
+
+smoke:
+  - name: hello
+    source: "print hi"
+    bogus: 1            # unknown key inside a SmokeTestCase -> strict decode error

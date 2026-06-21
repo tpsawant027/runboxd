@@ -56,7 +56,7 @@ var CapabilityStatus = map[string]sandbox.Status{
 	"compile_error": sandbox.StatusCompileError,
 }
 
-var SmokeStatuses = map[string]sandbox.Status{
+var SmokeStatus = map[string]sandbox.Status{
 	"ok":            sandbox.StatusOK,
 	"runtime_error": sandbox.StatusRuntimeError,
 	"timeout":       sandbox.StatusTimeout,
@@ -135,7 +135,7 @@ func validateSmokeTestCases(cases []SmokeTestCase) error {
 			return fmt.Errorf("smoke test case %q: missing required field 'source'", tc.Name)
 		}
 		if tc.WantStatus != "" {
-			if _, ok := SmokeStatuses[tc.WantStatus]; !ok {
+			if _, ok := SmokeStatus[tc.WantStatus]; !ok {
 				return fmt.Errorf("smoke test case %q: unknown want_status %q", tc.Name, tc.WantStatus)
 			}
 		}

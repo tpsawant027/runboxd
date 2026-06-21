@@ -1,0 +1,7 @@
+# want_status omitted: the validator ACCEPTS empty (the default-to-"ok" happens
+# later in RunFixture). This fixture must LOAD CLEAN (wantErr false).
+language: testlang
+
+smoke:
+  - name: hello
+    source: "print hi"
