@@ -58,24 +58,6 @@ type LanguageInfo struct {
 	Limits         LangLimits
 }
 
-type LangLimits struct {
-	MinTimeout, MaxTimeout         time.Duration
-	MinMemoryBytes, MaxMemoryBytes int64
-	MaxPids                        int64
-	MaxCPUs                        float64
-	WorkspaceSizeBytes             int64
-	TmpSizeBytes                   int64
-}
-
-type LangCompileLimits struct {
-	MemoryBytes        int64
-	Timeout            time.Duration
-	MaxPids            int64
-	MaxCPUs            float64
-	WorkspaceSizeBytes int64
-	TmpSizeBytes       int64
-}
-
 type LangSpec struct {
 	Filename string
 	Limits   LangLimits

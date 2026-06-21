@@ -15,7 +15,6 @@ import (
 	"text/template"
 	"time"
 
-	"github.com/tpsawant027/runboxd/internal/imagespec"
 	"github.com/tpsawant027/runboxd/internal/registry"
 )
 
@@ -428,41 +427,6 @@ func injectJVMFlags(cmd []string, memBytes int64, maxCPUs float64) []string {
 	newCmd = append(newCmd, flags...)
 	newCmd = append(newCmd, cmd[1:]...)
 	return newCmd
-}
-
-func resolveLangCompileLimits(l imagespec.CompileLimits) LangCompileLimits {
-	return LangCompileLimits{
-		MemoryBytes:        valueWithDefault(int64(l.MemoryMiB)*1024*1024, MaxMemoryBytes),
-		Timeout:            valueWithDefault(time.Duration(l.TimeoutSeconds)*time.Second, MaxTimeout),
-		MaxPids:            valueWithDefault(int64(l.MaxPids), MaxPids),
-		MaxCPUs:            valueWithDefault(l.MaxCPUs, DefaultMaxCPUs),
-		WorkspaceSizeBytes: valueWithDefault(int64(l.WorkspaceSizeMiB), DefaultWorkspaceSizeMiB) * 1024 * 1024,
-		TmpSizeBytes:       valueWithDefault(int64(l.TmpSizeMiB), DefaultTmpSizeMiB) * 1024 * 1024,
-	}
-}
-
-func validateLangCompileLimits(limits LangCompileLimits) error {
-	if limits.Timeout < 0 {
-		return fmt.Errorf("compile timeout must be non-negative")
-	}
-	if limits.MemoryBytes < 0 {
-		return fmt.Errorf("compile memory limit must be non-negative")
-	}
-	if limits.MaxPids < 1 {
-		return fmt.Errorf("compile MaxPids must be at least 1")
-	}
-	// Reject non-positive AND non-finite: 0/negative -> 0 = UNLIMITED at the
-	// backend; NaN/+Inf slip past a bare `<= 0` and convert to a garbage int64.
-	if !(limits.MaxCPUs > 0) || math.IsInf(limits.MaxCPUs, 1) {
-		return fmt.Errorf("MaxCPUs must be a positive, finite number")
-	}
-	if limits.WorkspaceSizeBytes <= 0 {
-		return fmt.Errorf("WorkspaceSizeBytes must be positive")
-	}
-	if limits.TmpSizeBytes <= 0 {
-		return fmt.Errorf("TmpSizeBytes must be positive")
-	}
-	return nil
 }
 
 func statusForNsjailExit(code int, timedOut bool) Status {

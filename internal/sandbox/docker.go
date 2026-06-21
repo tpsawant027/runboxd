@@ -20,37 +20,21 @@ import (
 	"github.com/moby/moby/api/types/container"
 	"github.com/moby/moby/api/types/mount"
 	"github.com/moby/moby/client"
-	"github.com/tpsawant027/runboxd/internal/imagespec"
 	"github.com/tpsawant027/runboxd/internal/registry"
 	"golang.org/x/sync/errgroup"
 )
 
 const (
-	MaxPids                 = 100
-	MinTimeout              = 1 * time.Second
-	MaxTimeout              = 10 * time.Second
-	MinMemoryBytes          = 64 * 1024 * 1024  // 64 MiB
-	MaxMemoryBytes          = 256 * 1024 * 1024 // 256 MiB
-	DefaultMaxCPUs          = 0.5
-	MaxOutputBytes          = 1 * 1024 * 1024 // 1 MiB per stream
-	MaxLogConfigFileSize    = "3m"
-	MaxLogConfigFileCount   = "1"
-	DefaultWorkspaceSizeMiB = 10
-	DefaultTmpSizeMiB       = 5
-
-	ImagePullTimeout = 2 * time.Minute
+	imagePullTimeout      = 2 * time.Minute
+	managedLabel          = "runboxd.managed"
+	reapMaxAge            = time.Minute
+	sandboxDir            = "/sandbox"
+	inputDir              = "/input"
+	buildDir              = "/build"
+	compileFailExitCode   = 100
+	maxLogConfigFileSize  = "3m"
+	maxLogConfigFileCount = "1"
 )
-
-const (
-	managedLabel = "runboxd.managed"
-	reapMaxAge   = time.Minute
-
-	sandboxDir = "/sandbox"
-	inputDir   = "/input"
-	buildDir   = "/build"
-)
-
-const compileFailExitCode = 100
 
 var (
 	ErrUnsupportedLanguage = errors.New("unsupported language")
@@ -405,7 +389,7 @@ func ensureImage(ctx context.Context, cli *client.Client, image string) error {
 		// Present locally - nothing to pull.
 	case errdefs.IsNotFound(err):
 		// Pull once, draining to EOF so the pull completes before we return.
-		tctx, cancel := context.WithTimeout(ctx, ImagePullTimeout)
+		tctx, cancel := context.WithTimeout(ctx, imagePullTimeout)
 		defer cancel()
 		reader, err := cli.ImagePull(tctx, image, client.ImagePullOptions{})
 		if err != nil {
@@ -419,80 +403,6 @@ func ensureImage(ctx context.Context, cli *client.Client, image string) error {
 		// Real failure (daemon down, perms, ...), not a missing image — surface it.
 		return err
 	}
-	return nil
-}
-
-// valueWithDefault returns defaultValue when value is the zero value of T.
-// DO NOT use for fields where zero is a valid explicit value.
-func valueWithDefault[T comparable](value, defaultValue T) T {
-	var zero T
-	if value == zero {
-		return defaultValue
-	}
-	return value
-}
-
-// resolveLangLimits converts the registry's ergonomic limits (MiB/seconds, zero =
-// unset) into resolved LangLimits, filling unset fields from the package-const
-// defaults. Max is resolved first; an unset min defaults to the package floor but
-// is clamped to never exceed the resolved max (so setting only a low max doesn't
-// trip the min<=max check). An explicit min>max is left intact for validation.
-func resolveLangLimits(l imagespec.Limits) LangLimits {
-	maxTimeout := valueWithDefault(time.Duration(l.MaxTimeoutSeconds)*time.Second, MaxTimeout)
-	maxMemory := valueWithDefault(int64(l.MaxMemoryMiB)*1024*1024, MaxMemoryBytes)
-
-	minTimeout := time.Duration(l.MinTimeoutSeconds) * time.Second
-	if minTimeout == 0 {
-		minTimeout = min(MinTimeout, maxTimeout)
-	}
-	minMemory := int64(l.MinMemoryMiB) * 1024 * 1024
-	if minMemory == 0 {
-		minMemory = min(MinMemoryBytes, maxMemory)
-	}
-
-	return LangLimits{
-		MinTimeout:         minTimeout,
-		MaxTimeout:         maxTimeout,
-		MinMemoryBytes:     minMemory,
-		MaxMemoryBytes:     maxMemory,
-		MaxPids:            valueWithDefault(int64(l.MaxPids), MaxPids),
-		MaxCPUs:            valueWithDefault(l.MaxCPUs, DefaultMaxCPUs),
-		WorkspaceSizeBytes: valueWithDefault(int64(l.WorkspaceSizeMiB), DefaultWorkspaceSizeMiB) * 1024 * 1024,
-		TmpSizeBytes:       valueWithDefault(int64(l.TmpSizeMiB), DefaultTmpSizeMiB) * 1024 * 1024,
-	}
-}
-
-func validateLangLimits(limits LangLimits) error {
-	if limits.MinTimeout < 0 || limits.MaxTimeout < 0 {
-		return fmt.Errorf("timeout limits must be non-negative")
-	}
-	if limits.MinMemoryBytes < 0 || limits.MaxMemoryBytes < 0 {
-		return fmt.Errorf("memory limits must be non-negative")
-	}
-	if limits.MaxPids < 1 {
-		return fmt.Errorf("MaxPids must be at least 1")
-	}
-	// Reject non-positive AND non-finite: 0/negative -> 0 = UNLIMITED at the
-	// backend; NaN/+Inf slip past a bare `<= 0` and convert to a garbage int64.
-	if !(limits.MaxCPUs > 0) || math.IsInf(limits.MaxCPUs, 1) {
-		return fmt.Errorf("MaxCPUs must be a positive, finite number")
-	}
-
-	if limits.WorkspaceSizeBytes <= 0 {
-		return fmt.Errorf("WorkspaceSizeBytes must be positive")
-	}
-
-	if limits.TmpSizeBytes <= 0 {
-		return fmt.Errorf("TmpSizeBytes must be positive")
-	}
-
-	if limits.MinTimeout > limits.MaxTimeout {
-		return fmt.Errorf("MinTimeout cannot be greater than MaxTimeout")
-	}
-	if limits.MinMemoryBytes > limits.MaxMemoryBytes {
-		return fmt.Errorf("MinMemoryBytes cannot be greater than MaxMemoryBytes")
-	}
-
 	return nil
 }
 
@@ -577,7 +487,7 @@ func getHostConfig(spec RunSpec, ds dockerSpec, inputSrc string) *container.Host
 		},
 		LogConfig: container.LogConfig{
 			Type:   "json-file",
-			Config: map[string]string{"max-size": MaxLogConfigFileSize, "max-file": MaxLogConfigFileCount},
+			Config: map[string]string{"max-size": maxLogConfigFileSize, "max-file": maxLogConfigFileCount},
 		},
 	}
 	hc.Memory = effectiveMemoryBytes(spec.MemoryBytes, ds.limits)
