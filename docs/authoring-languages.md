@@ -15,8 +15,9 @@ error at load time. The Go structs are the schema -
 for `tests.yml` - and this document tracks them.
 
 > **Generated, do not hand-edit:** `language_registry.yml` and the image lockfile
-> are produced from these files by `runboxctl genimages` / `genlock`. The source of
-> truth is always `images/<lang>/`; never edit the registry directly.
+> are produced from these files by `runboxctl gen-images` / `gen-lock` (`make
+> gen-images` / `make gen-lock`). The source of truth is always `images/<lang>/`;
+> never edit the registry directly.
 
 ---
 
