@@ -11,7 +11,7 @@ Each language runboxd supports is defined as **configuration**. A language lives
 You can add a language or a version without touching Go. Both files are
 **strictly decoded** (`KnownFields(true)`): an unknown or misspelled key is a hard
 error at load time. The Go structs are the schema -
-`internal/imagespec/imagespec.go` for `image.yml`, `internal/langtest/fixture.go`
+[`internal/imagespec/imagespec.go`](../internal/imagespec/imagespec.go) for `image.yml`, [`internal/langtest/fixture.go`](../internal/langtest/fixture.go)
 for `tests.yml` - and this document tracks them.
 
 > **Generated, do not hand-edit:** `language_registry.yml` and the image lockfile
@@ -112,14 +112,14 @@ Two independent tiers, mapping to two jails:
 - **`compile_limits`** - the **compile** jail (`build_cmd`). Compiled languages
   only; interpreted languages have no compile phase, so it's ignored.
 
-| `limits` field                                | Unit                                |     | `compile_limits` field | Unit            |
-| --------------------------------------------- | ----------------------------------- | --- | ---------------------- | --------------- |
-| `min_memory_mib` / `max_memory_mib`           | MiB                                 |     | `memory_mib`           | MiB             |
-| `min_timeout_seconds` / `max_timeout_seconds` | seconds                             |     | `timeout_seconds`      | seconds         |
-| `max_pids`                                    | count                               |     | `max_pids`             | count           |
-| `max_cpus`                                    | fractional CPUs (float, e.g. `0.5`) |     | `max_cpus`             | fractional CPUs |
-| `workspace_size_mib` (`/sandbox` tmpfs)       | MiB                                 |     | `workspace_size_mib`   | MiB             |
-| `tmp_size_mib` (`/tmp` tmpfs)                 | MiB                                 |     | `tmp_size_mib`         | MiB             |
+| `limits` field                                | Unit                                | `compile_limits` field | Unit            |
+| --------------------------------------------- | ----------------------------------- | ---------------------- | --------------- |
+| `min_memory_mib` / `max_memory_mib`           | MiB                                 | `memory_mib`           | MiB             |
+| `min_timeout_seconds` / `max_timeout_seconds` | seconds                             | `timeout_seconds`      | seconds         |
+| `max_pids`                                    | count                               | `max_pids`             | count           |
+| `max_cpus`                                    | fractional CPUs (float, e.g. `0.5`) | `max_cpus`             | fractional CPUs |
+| `workspace_size_mib` (`/sandbox` tmpfs)       | MiB                                 | `workspace_size_mib`   | MiB             |
+| `tmp_size_mib` (`/tmp` tmpfs)                 | MiB                                 | `tmp_size_mib`         | MiB             |
 
 Memory and timeout in the run tier are **ranges**: a per-request value is clamped
 to `[min, max]`. The compile tier is a single budget (no min/max).
@@ -132,7 +132,7 @@ field to move it off the default. You can set values **above** the defaults
 nonsensical inputs: `max_cpus` ≤ 0 or non-finite, `max_pids` < 1, negative
 timeouts, and `min` > `max`.
 
-The default values live in one `const` block, `internal/sandbox/limits.go`
+The default values live in one `const` block, [`internal/sandbox/limits.go`](../internal/sandbox/limits.go)
 (shared by both backends). At the time of writing:
 
 | Field                 | Default                        |
@@ -211,8 +211,8 @@ smoke: # a list; fully author-controlled, full matcher set
 
 **`conformance`** is a **closed map keyed by capability**. The only allowed keys are
 `oom`, `timeout`, `fs_escape`, `compile_error`. You do **not** write the expected
-status - the harness owns it (oom -> OOM, timeout -> Timeout, fs_escape ->
-RuntimeError, compile_error -> CompileError). You supply the `source` that should
+status - the harness owns it (`oom -> OOM`, `timeout -> Timeout`, `fs_escape ->
+RuntimeError`, `compile_error -> CompileError`). You supply the `source` that should
 trigger the capability, plus the trigger's parameter:
 
 | Key             | Required (besides `source`)        | Proves                                          |
