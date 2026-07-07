@@ -23,14 +23,14 @@ cover:
 bench:
 	go test -bench=. -benchmem -run '^$$' ./internal/api/
 gen-lock:
-	go run ./cmd/runboxctl gen-lock --image-dir ./images --lockfile ./images.lock.yml
+	go run ./cmd/runboxctl images gen-lock --image-dir ./images --lockfile ./images.lock.yml
 gen-images:
-	go run ./cmd/runboxctl gen-images --image-dir ./images --lockfile ./images.lock.yml --registry ./language_registry.yml
+	go run ./cmd/runboxctl images gen-images --image-dir ./images --lockfile ./images.lock.yml --registry ./language_registry.yml
 images: gen-images
-	go run ./cmd/runboxctl build-images --image-dir ./images --registry ./language_registry.yml
+	go run ./cmd/runboxctl images build-images --image-dir ./images --registry ./language_registry.yml
 rootfs: images
 	-chmod -R u+w _rootfs 2>/dev/null
-	go run ./cmd/runboxctl export-rootfs --registry ./language_registry.yml --rootfs-dir ./_rootfs --image-dir ./images
+	go run ./cmd/runboxctl images export-rootfs --registry ./language_registry.yml --rootfs-dir ./_rootfs --image-dir ./images
 integration: images
 	go test -tags=integration -race -timeout 5m ./...
 integration-nsjail: rootfs

@@ -1,4 +1,4 @@
-package cmd
+package images
 
 import (
 	"context"
@@ -16,20 +16,15 @@ import (
 	"golang.org/x/sync/errgroup"
 )
 
-var exportRootFSCmd = &cobra.Command{
-	Use:   "export-rootfs",
-	Short: "Export the root filesystem of a built image as a directory",
-	RunE: func(cmd *cobra.Command, args []string) error {
-		return runExportRootFS(cmd, args)
-	},
-}
-
-func init() {
-	rootCmd.AddCommand(exportRootFSCmd)
-
-	exportRootFSCmd.Flags().String("rootfs-dir", "_rootfs", "directory where the exported root filesystem tarballs will be written")
-	exportRootFSCmd.Flags().String("image-dir", "./images", "directory containing per-language image build contexts")
-	exportRootFSCmd.Flags().Bool("force", false, "re-export all rootfs even if the image digest is unchanged")
+func newExportRootFSCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "export-rootfs",
+		Short: "Export the root filesystem of a built image as a directory",
+		RunE:  runExportRootFS,
+	}
+	cmd.Flags().String("rootfs-dir", "_rootfs", "directory where the exported root filesystem tarballs will be written")
+	cmd.Flags().Bool("force", false, "re-export all rootfs even if the image digest is unchanged")
+	return cmd
 }
 
 func runExportRootFS(cmd *cobra.Command, _ []string) error {

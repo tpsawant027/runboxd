@@ -1,4 +1,4 @@
-package cmd
+package images
 
 import (
 	"bytes"
@@ -18,18 +18,14 @@ import (
 	"go.yaml.in/yaml/v4"
 )
 
-var genImagesCmd = &cobra.Command{
-	Use:   "gen-images",
-	Short: "Generate Dockerfiles for all images",
-	RunE: func(cmd *cobra.Command, args []string) error {
-		return runGenImages(cmd, args)
-	},
-}
-
-func init() {
-	rootCmd.AddCommand(genImagesCmd)
-
-	genImagesCmd.Flags().String("lockfile", "", "path to the lockfile to read base image digests from")
+func newGenImagesCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "gen-images",
+		Short: "Generate Dockerfiles for all images",
+		RunE:  runGenImages,
+	}
+	cmd.Flags().String("lockfile", "", "path to the lockfile to read base image digests from")
+	return cmd
 }
 
 type dockerfileData struct {

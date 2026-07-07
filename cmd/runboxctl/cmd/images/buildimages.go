@@ -1,4 +1,4 @@
-package cmd
+package images
 
 import (
 	"context"
@@ -17,18 +17,14 @@ import (
 
 const imageCacheDir = ".image_cache"
 
-var buildImagesCmd = &cobra.Command{
-	Use:   "build-images",
-	Short: "Build all images using the generated Dockerfiles",
-	RunE: func(cmd *cobra.Command, args []string) error {
-		return runBuildImages(cmd, args)
-	},
-}
-
-func init() {
-	rootCmd.AddCommand(buildImagesCmd)
-
-	buildImagesCmd.Flags().Bool("no-cache", false, "pass `--no-cache` to docker build")
+func newBuildImagesCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "build-images",
+		Short: "Build all images using the generated Dockerfiles",
+		RunE:  runBuildImages,
+	}
+	cmd.Flags().Bool("no-cache", false, "pass `--no-cache` to docker build")
+	return cmd
 }
 
 func runBuildImages(cmd *cobra.Command, _ []string) error {

@@ -1,4 +1,4 @@
-package cmd
+package images
 
 import (
 	"context"
@@ -15,20 +15,16 @@ import (
 	"golang.org/x/sync/errgroup"
 )
 
-var genlockCmd = &cobra.Command{
-	Use:   "gen-lock",
-	Short: "Generate a lockfile with the current digests of all base images",
-	RunE: func(cmd *cobra.Command, args []string) error {
-		return runGenLock(cmd, args)
-	},
-}
-
-func init() {
-	rootCmd.AddCommand(genlockCmd)
-
-	genlockCmd.Flags().String("lockfile", "images.lock.yml", "path where the generated lockfile will be written")
-	genlockCmd.Flags().Bool("drop-stale", false, "drop entries whose digest can't be refreshed instead of keeping the existing one")
-	genlockCmd.Flags().Bool("verbose", false, "enable verbose logging")
+func newGenLockCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "gen-lock",
+		Short: "Generate a lockfile with the current digests of all base images",
+		RunE:  runGenLock,
+	}
+	cmd.Flags().String("lockfile", "images.lock.yml", "path where the generated lockfile will be written")
+	cmd.Flags().Bool("drop-stale", false, "drop entries whose digest can't be refreshed instead of keeping the existing one")
+	cmd.Flags().Bool("verbose", false, "enable verbose logging")
+	return cmd
 }
 
 type refreshFailure struct {

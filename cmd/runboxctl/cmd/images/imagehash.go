@@ -1,4 +1,4 @@
-package cmd
+package images
 
 import (
 	"crypto/sha256"
