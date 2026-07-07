@@ -6,7 +6,7 @@ LOAD_DURATION ?= 15s
 
 COVER_PROFILE ?= cover.out
 
-.PHONY: build run test cover integration integration-nsjail load lint clean gen-lock gen-images images rootfs adversarial adversarial-nsjail conformance conformance-nsjail
+.PHONY: build run test cover bench integration integration-nsjail load lint clean gen-lock gen-images images rootfs adversarial adversarial-nsjail conformance conformance-nsjail
 build:
 	go build -o $(BINARY) ./cmd/runboxd
 run: build
@@ -18,6 +18,10 @@ cover:
 	go test $(GOFLAGS) -covermode=atomic -coverprofile=$(COVER_PROFILE) ./...
 	go tool cover -func=$(COVER_PROFILE)
 	go tool cover -html=$(COVER_PROFILE) -o $(COVER_PROFILE:.out=.html)
+# Handler-path overhead (ns/op, allocs/op) for /execute with a fake sandbox,
+# isolated from Docker/nsjail substrate cost.
+bench:
+	go test -bench=. -benchmem -run '^$$' ./internal/api/
 gen-lock:
 	go run ./cmd/runboxctl gen-lock --image-dir ./images --lockfile ./images.lock.yml
 gen-images:
