@@ -70,6 +70,7 @@ func Load(dir string) ([]Entry, error) {
 	}
 
 	var entries []Entry
+	var errs []error
 	for _, f := range files {
 		if !f.IsDir() {
 			continue
@@ -81,18 +82,23 @@ func Load(dir string) ([]Entry, error) {
 			if errors.Is(err, fs.ErrNotExist) {
 				continue
 			}
-			return nil, fmt.Errorf("read %s: %w", specPath, err)
+			errs = append(errs, fmt.Errorf("read %s: %w", specPath, err))
+			continue
 		}
 		var spec ImageSpec
 		dec := yaml.NewDecoder(bytes.NewReader(data))
 		dec.KnownFields(true)
 		if err := dec.Decode(&spec); err != nil {
-			return nil, fmt.Errorf("parse %s: %w", specPath, err)
+			errs = append(errs, fmt.Errorf("parse %s: %w", specPath, err))
+			continue
 		}
 		if err := validateSpec(spec); err != nil {
-			return nil, fmt.Errorf("validate %s: %w", specPath, err)
+			errs = append(errs, fmt.Errorf("validate %s: %w", specPath, err))
 		}
 		entries = append(entries, Entry{Dir: langDir, Spec: spec})
+	}
+	if len(errs) > 0 {
+		return nil, errors.Join(errs...)
 	}
 	return entries, nil
 }

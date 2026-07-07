@@ -10,6 +10,8 @@ import (
 	"go.yaml.in/yaml/v4"
 )
 
+const FixtureFilename = "tests.yml"
+
 type Fixture struct {
 	Language         string                         `yaml:"language"`
 	Version          string                         `yaml:"version"` // empty = default version

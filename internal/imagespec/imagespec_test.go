@@ -11,11 +11,12 @@ import (
 
 func TestLoadImageSpec(t *testing.T) {
 	cases := []struct {
-		name            string
-		dir             string
-		wantErr         bool
-		wantErrContains string
-		wantEntries     int
+		name               string
+		dir                string
+		wantErr            bool
+		wantErrContains    string
+		wantErrNotContains string
+		wantEntries        int
 	}{
 		{
 			name:        "valid",
@@ -90,9 +91,11 @@ func TestLoadImageSpec(t *testing.T) {
 			wantErrContains: "at least one version is required",
 		},
 		{
-			name:    "malformed yaml",
-			dir:     "testdata/malformed_yaml",
-			wantErr: true,
+			name:               "malformed yaml",
+			dir:                "testdata/malformed_yaml",
+			wantErr:            true,
+			wantErrContains:    "parse",
+			wantErrNotContains: "validate",
 		},
 		{
 			name:    "unknown top key",
@@ -144,6 +147,8 @@ func TestLoadImageSpec(t *testing.T) {
 				t.Fatalf("unexpected error: %v", err)
 			case tc.wantErr && tc.wantErrContains != "" && !strings.Contains(err.Error(), tc.wantErrContains):
 				t.Fatalf("expected error to contain %q but got: %v", tc.wantErrContains, err)
+			case tc.wantErr && tc.wantErrNotContains != "" && strings.Contains(err.Error(), tc.wantErrNotContains):
+				t.Fatalf("expected error NOT to contain %q but got: %v", tc.wantErrNotContains, err)
 			case !tc.wantErr && len(entries) != tc.wantEntries:
 				t.Fatalf("expected %d entries but got %d", tc.wantEntries, len(entries))
 			}
