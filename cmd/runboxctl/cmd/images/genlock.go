@@ -42,10 +42,22 @@ func runGenLock(cmd *cobra.Command, _ []string) error {
 	if err != nil {
 		return fmt.Errorf("failed to get flag: %w", err)
 	}
+	rawLangFilter, err := cmd.Flags().GetStringArray("lang")
+	if err != nil {
+		return fmt.Errorf("failed to get flag: %w", err)
+	}
 	dropStale, _ := cmd.Flags().GetBool("drop-stale")
 	verbose, _ := cmd.Flags().GetBool("verbose")
 
-	entries, err := imagespec.Load(imageDir)
+	var parsedLangFilter imagespec.LangFilter
+	if len(rawLangFilter) > 0 {
+		parsedLangFilter, err = imagespec.ParseLangFilter(rawLangFilter)
+		if err != nil {
+			return fmt.Errorf("failed to parse language filter: %w", err)
+		}
+	}
+
+	entries, err := imagespec.LoadFiltered(imageDir, parsedLangFilter)
 	if err != nil {
 		return fmt.Errorf("failed to load image specs: %w", err)
 	}

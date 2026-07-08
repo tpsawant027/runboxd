@@ -117,3 +117,31 @@ func TestFilter(t *testing.T) {
 		}
 	})
 }
+
+func TestLoadFiltered(t *testing.T) {
+	t.Run("nil filter loads everything, unfiltered", func(t *testing.T) {
+		r, err := registry.LoadFiltered("testdata/registry_valid.yml", nil)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if !slices.Equal(langKeys(r), []string{"go", "python"}) {
+			t.Fatalf("got languages %v, want [go python]", langKeys(r))
+		}
+		if !slices.Equal(versionKeys(r.Languages["python"]), []string{"3.11", "3.12"}) {
+			t.Fatalf("got python versions %v, want all versions", versionKeys(r.Languages["python"]))
+		}
+		if !slices.Equal(versionKeys(r.Languages["go"]), []string{"1.25", "1.26"}) {
+			t.Fatalf("got go versions %v, want all versions", versionKeys(r.Languages["go"]))
+		}
+	})
+
+	t.Run("nonexistent registry file propagates the Load error", func(t *testing.T) {
+		r, err := registry.LoadFiltered("testdata/does_not_exist.yml", nil)
+		if err == nil {
+			t.Fatal("expected error, got nil")
+		}
+		if r != nil {
+			t.Fatalf("expected nil registry on error, got %+v", r)
+		}
+	})
+}

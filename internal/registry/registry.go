@@ -84,3 +84,16 @@ func Load(path string) (*Registry, error) {
 	}
 	return &registry, nil
 }
+
+func LoadFiltered(path string, filter imagespec.LangFilter) (*Registry, error) {
+	registry, err := Load(path)
+	if err != nil {
+		return nil, err
+	}
+	if filter != nil {
+		if err := registry.Filter(filter); err != nil {
+			return nil, fmt.Errorf("filter registry: %w", err)
+		}
+	}
+	return registry, nil
+}

@@ -65,6 +65,18 @@ func runGenImages(cmd *cobra.Command, _ []string) error {
 	if err != nil {
 		return fmt.Errorf("failed to get flag: %w", err)
 	}
+	rawLangFilter, err := cmd.Flags().GetStringArray("lang")
+	if err != nil {
+		return fmt.Errorf("failed to get flag: %w", err)
+	}
+
+	var parsedLangFilter imagespec.LangFilter
+	if len(rawLangFilter) > 0 {
+		parsedLangFilter, err = imagespec.ParseLangFilter(rawLangFilter)
+		if err != nil {
+			return fmt.Errorf("failed to parse language filter: %w", err)
+		}
+	}
 
 	var lockfileData imagespec.Lockfile
 
@@ -80,12 +92,30 @@ func runGenImages(cmd *cobra.Command, _ []string) error {
 		lockfileData = lf
 	}
 
-	entries, err := imagespec.Load(imageDir)
+	entries, err := imagespec.LoadFiltered(imageDir, parsedLangFilter)
 	if err != nil {
 		return fmt.Errorf("failed to load image specs: %w", err)
 	}
 
 	languageRegistry := registry.Registry{Languages: make(map[string]registry.Language)}
+	if parsedLangFilter != nil {
+		// A --lang filter only regenerates a subset of languages/versions, so
+		// merge into whatever's already on disk instead of starting from an
+		// empty registry: otherwise this run would silently drop every
+		// language/version it didn't touch from the shared registry file.
+		existing, err := registry.Load(registryOut)
+		switch {
+		case err == nil:
+			languageRegistry = *existing
+			if languageRegistry.Languages == nil {
+				languageRegistry.Languages = make(map[string]registry.Language)
+			}
+		case errors.Is(err, fs.ErrNotExist):
+			// nothing to merge into yet, start fresh
+		default:
+			return fmt.Errorf("failed to load existing registry to merge into: %w", err)
+		}
+	}
 
 	for _, entry := range entries {
 		wrapperContent, err := os.ReadFile(filepath.Join(entry.Dir, imagespec.WrapperFilename))
@@ -98,7 +128,7 @@ func runGenImages(cmd *cobra.Command, _ []string) error {
 			return fmt.Errorf("%s: exec_cmd is required in the image spec", entry.Spec.Name)
 		}
 
-		languageRegistry.Languages[entry.Spec.Name] = registry.Language{
+		newLang := registry.Language{
 			Name:           entry.Spec.Name,
 			Type:           entry.Spec.Type,
 			Filename:       entry.Spec.Filename,
@@ -112,6 +142,15 @@ func runGenImages(cmd *cobra.Command, _ []string) error {
 				ExecutionCommand: entry.Spec.ExecCmd,
 			},
 		}
+		// Preserve versions of this language that this run isn't touching
+		if existingLang, ok := languageRegistry.Languages[entry.Spec.Name]; ok {
+			for versionName, version := range existingLang.Versions {
+				if _, regenerating := entry.Spec.Versions[versionName]; !regenerating {
+					newLang.Versions[versionName] = version
+				}
+			}
+		}
+		languageRegistry.Languages[entry.Spec.Name] = newLang
 
 		for versionName, version := range entry.Spec.Versions {
 			var digest string

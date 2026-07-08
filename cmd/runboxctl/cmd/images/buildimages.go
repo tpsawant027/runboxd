@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/spf13/cobra"
+	"github.com/tpsawant027/runboxd/internal/imagespec"
 	"github.com/tpsawant027/runboxd/internal/registry"
 	"golang.org/x/sync/errgroup"
 )
@@ -36,9 +37,21 @@ func runBuildImages(cmd *cobra.Command, _ []string) error {
 	if err != nil {
 		return fmt.Errorf("failed to get flag: %w", err)
 	}
+	rawLangFilter, err := cmd.Flags().GetStringArray("lang")
+	if err != nil {
+		return fmt.Errorf("failed to get flag: %w", err)
+	}
 	noCache, _ := cmd.Flags().GetBool("no-cache")
 
-	registry, err := registry.Load(registryPath)
+	var parsedLangFilter imagespec.LangFilter
+	if len(rawLangFilter) > 0 {
+		parsedLangFilter, err = imagespec.ParseLangFilter(rawLangFilter)
+		if err != nil {
+			return fmt.Errorf("failed to parse language filter: %w", err)
+		}
+	}
+
+	registry, err := registry.LoadFiltered(registryPath, parsedLangFilter)
 	if err != nil {
 		return fmt.Errorf("failed to load registry: %w", err)
 	}

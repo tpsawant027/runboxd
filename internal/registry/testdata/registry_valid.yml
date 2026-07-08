@@ -1,0 +1,41 @@
+languages:
+  python:
+    name: python
+    type: interpreted
+    filename: main.py
+    default_version: "3.12"
+    limits:
+      max_memory_mib: 256
+    versions:
+      "3.11":
+        name: "3.11"
+        image: runboxd-python:3.11
+        run_cmd: ["python3", "/sandbox/main.py"]
+      "3.12":
+        name: "3.12"
+        image: runboxd-python:3.12
+        run_cmd: ["python3", "/sandbox/main.py"]
+    artifact:
+      name: main.py
+      execution_command: python3
+  go:
+    name: go
+    type: compiled
+    filename: main.go
+    default_version: "1.26"
+    limits:
+      max_memory_mib: 256
+    versions:
+      "1.25":
+        name: "1.25"
+        image: runboxd-go:1.25
+        run_cmd: ["/build/main"]
+        build_cmd: ["go", "build", "-o", "/build/main", "/sandbox/main.go"]
+      "1.26":
+        name: "1.26"
+        image: runboxd-go:1.26
+        run_cmd: ["/build/main"]
+        build_cmd: ["go", "build", "-o", "/build/main", "/sandbox/main.go"]
+    artifact:
+      name: main.go
+      execution_command: go
