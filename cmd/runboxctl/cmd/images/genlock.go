@@ -34,27 +34,14 @@ type refreshFailure struct {
 }
 
 func runGenLock(cmd *cobra.Command, _ []string) error {
-	imageDir, err := cmd.Flags().GetString("image-dir")
-	if err != nil {
-		return fmt.Errorf("failed to get flag: %w", err)
-	}
-	lockfileOut, err := cmd.Flags().GetString("lockfile")
-	if err != nil {
-		return fmt.Errorf("failed to get flag: %w", err)
-	}
-	rawLangFilter, err := cmd.Flags().GetStringArray("lang")
-	if err != nil {
-		return fmt.Errorf("failed to get flag: %w", err)
-	}
-	dropStale, _ := cmd.Flags().GetBool("drop-stale")
-	verbose, _ := cmd.Flags().GetBool("verbose")
+	imageDir := mustGetFlagString(cmd, "image-dir")
+	lockfileOut := mustGetFlagString(cmd, "lockfile")
+	dropStale := mustGetFlagBool(cmd, "drop-stale")
+	verbose := mustGetFlagBool(cmd, "verbose")
 
-	var parsedLangFilter imagespec.LangFilter
-	if len(rawLangFilter) > 0 {
-		parsedLangFilter, err = imagespec.ParseLangFilter(rawLangFilter)
-		if err != nil {
-			return fmt.Errorf("failed to parse language filter: %w", err)
-		}
+	parsedLangFilter, err := loadLangFilter(cmd)
+	if err != nil {
+		return fmt.Errorf("failed to parse language filter: %w", err)
 	}
 
 	entries, err := imagespec.LoadFiltered(imageDir, parsedLangFilter)

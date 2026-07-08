@@ -23,21 +23,11 @@ func newListImagesCmd() *cobra.Command {
 }
 
 func runListImages(cmd *cobra.Command, _ []string) error {
-	imageDir, err := cmd.Flags().GetString("image-dir")
-	if err != nil {
-		return fmt.Errorf("failed to get flag: %w", err)
-	}
-	rawLangFilter, err := cmd.Flags().GetStringArray("lang")
-	if err != nil {
-		return fmt.Errorf("failed to get flag: %w", err)
-	}
+	imageDir := mustGetFlagString(cmd, "image-dir")
 
-	var parsedLangFilter imagespec.LangFilter
-	if len(rawLangFilter) > 0 {
-		parsedLangFilter, err = imagespec.ParseLangFilter(rawLangFilter)
-		if err != nil {
-			return fmt.Errorf("failed to parse language filter: %w", err)
-		}
+	parsedLangFilter, err := loadLangFilter(cmd)
+	if err != nil {
+		return fmt.Errorf("failed to parse language filter: %w", err)
 	}
 
 	entries, err := imagespec.LoadFiltered(imageDir, parsedLangFilter)

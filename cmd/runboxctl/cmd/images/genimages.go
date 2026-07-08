@@ -53,29 +53,13 @@ CMD {{.RunCmdJSON}}
 `))
 
 func runGenImages(cmd *cobra.Command, _ []string) error {
-	imageDir, err := cmd.Flags().GetString("image-dir")
-	if err != nil {
-		return fmt.Errorf("failed to get flag: %w", err)
-	}
-	lockfilePath, err := cmd.Flags().GetString("lockfile")
-	if err != nil {
-		return fmt.Errorf("failed to get flag: %w", err)
-	}
-	registryOut, err := cmd.Flags().GetString("registry")
-	if err != nil {
-		return fmt.Errorf("failed to get flag: %w", err)
-	}
-	rawLangFilter, err := cmd.Flags().GetStringArray("lang")
-	if err != nil {
-		return fmt.Errorf("failed to get flag: %w", err)
-	}
+	imageDir := mustGetFlagString(cmd, "image-dir")
+	lockfilePath := mustGetFlagString(cmd, "lockfile")
+	registryOut := mustGetFlagString(cmd, "registry")
 
-	var parsedLangFilter imagespec.LangFilter
-	if len(rawLangFilter) > 0 {
-		parsedLangFilter, err = imagespec.ParseLangFilter(rawLangFilter)
-		if err != nil {
-			return fmt.Errorf("failed to parse language filter: %w", err)
-		}
+	parsedLangFilter, err := loadLangFilter(cmd)
+	if err != nil {
+		return fmt.Errorf("failed to parse language filter: %w", err)
 	}
 
 	var lockfileData imagespec.Lockfile

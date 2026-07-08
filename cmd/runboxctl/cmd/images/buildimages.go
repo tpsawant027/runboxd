@@ -11,7 +11,6 @@ import (
 	"time"
 
 	"github.com/spf13/cobra"
-	"github.com/tpsawant027/runboxd/internal/imagespec"
 	"github.com/tpsawant027/runboxd/internal/registry"
 	"golang.org/x/sync/errgroup"
 )
@@ -29,26 +28,13 @@ func newBuildImagesCmd() *cobra.Command {
 }
 
 func runBuildImages(cmd *cobra.Command, _ []string) error {
-	imageDir, err := cmd.Flags().GetString("image-dir")
-	if err != nil {
-		return fmt.Errorf("failed to get flag: %w", err)
-	}
-	registryPath, err := cmd.Flags().GetString("registry")
-	if err != nil {
-		return fmt.Errorf("failed to get flag: %w", err)
-	}
-	rawLangFilter, err := cmd.Flags().GetStringArray("lang")
-	if err != nil {
-		return fmt.Errorf("failed to get flag: %w", err)
-	}
-	noCache, _ := cmd.Flags().GetBool("no-cache")
+	imageDir := mustGetFlagString(cmd, "image-dir")
+	registryPath := mustGetFlagString(cmd, "registry")
+	noCache := mustGetFlagBool(cmd, "no-cache")
 
-	var parsedLangFilter imagespec.LangFilter
-	if len(rawLangFilter) > 0 {
-		parsedLangFilter, err = imagespec.ParseLangFilter(rawLangFilter)
-		if err != nil {
-			return fmt.Errorf("failed to parse language filter: %w", err)
-		}
+	parsedLangFilter, err := loadLangFilter(cmd)
+	if err != nil {
+		return fmt.Errorf("failed to parse language filter: %w", err)
 	}
 
 	registry, err := registry.LoadFiltered(registryPath, parsedLangFilter)
