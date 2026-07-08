@@ -2,8 +2,11 @@
 package registry
 
 import (
+	"errors"
 	"fmt"
+	"maps"
 	"os"
+	"slices"
 
 	"github.com/tpsawant027/runboxd/internal/imagespec"
 	"go.yaml.in/yaml/v4"
@@ -35,6 +38,39 @@ type Version struct {
 type Artifact struct {
 	Name             string `yaml:"name"`
 	ExecutionCommand string `yaml:"execution_command"`
+}
+
+func (r *Registry) Filter(filter imagespec.LangFilter) error {
+	newLanguages := make(map[string]Language, len(filter))
+	langsSeen := make(map[string]struct{})
+	var errs []error
+	for langName, lang := range r.Languages {
+		requestedVersions, ok := filter[langName]
+		if !ok {
+			continue
+		}
+		langsSeen[langName] = struct{}{}
+		if len(requestedVersions) > 0 {
+			newVersions, missing := imagespec.FilterVersions(lang.Versions, requestedVersions)
+			if len(missing) > 0 {
+				available := slices.Sorted(maps.Keys(lang.Versions))
+				errs = append(errs, imagespec.FormatMissingVersionsError(langName, missing, available))
+				continue
+			}
+			lang.Versions = newVersions
+		}
+		newLanguages[langName] = lang
+	}
+	for langName := range filter {
+		if _, ok := langsSeen[langName]; !ok {
+			errs = append(errs, fmt.Errorf("unknown language: %s", langName))
+		}
+	}
+	if len(errs) > 0 {
+		return errors.Join(errs...)
+	}
+	r.Languages = newLanguages
+	return nil
 }
 
 func Load(path string) (*Registry, error) {

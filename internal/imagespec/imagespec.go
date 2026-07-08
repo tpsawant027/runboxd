@@ -6,8 +6,11 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"maps"
 	"os"
 	"path/filepath"
+	"slices"
+	"strings"
 
 	"go.yaml.in/yaml/v4"
 )
@@ -63,44 +66,162 @@ type Entry struct {
 
 type Lockfile map[string]map[string]string // lang -> version -> digest
 
-func Load(dir string) ([]Entry, error) {
-	files, err := os.ReadDir(dir)
-	if err != nil {
-		return nil, fmt.Errorf("read dir %s: %w", dir, err)
-	}
+type LangFilter map[string][]string // language -> requested versions; nil/empty = all versions
 
-	var entries []Entry
-	var errs []error
-	for _, f := range files {
-		if !f.IsDir() {
+const maxRawFilterLength = 100
+
+func ParseLangFilter(raw []string) (LangFilter, error) {
+	filter := make(LangFilter)
+	for _, r := range raw {
+		if len(r) > maxRawFilterLength {
+			return nil, fmt.Errorf("filter %q... exceeds maximum length of %d", r[:maxRawFilterLength], maxRawFilterLength)
+		}
+		lang, versionStr, _ := strings.Cut(r, ":")
+		if lang == "" {
+			return nil, fmt.Errorf("filter %q: language name is empty", r)
+		}
+		currVersions, ok := filter[lang]
+		switch {
+		case versionStr == "":
+			filter[lang] = nil
+		case ok && currVersions == nil:
+			// already requesting all versions of lang; a specific version adds nothing
+		case ok:
+			filter[lang] = append(currVersions, strings.Split(versionStr, ",")...)
+		default:
+			filter[lang] = strings.Split(versionStr, ",")
+		}
+	}
+	filter = dedupeLangFilter(filter)
+	return filter, nil
+}
+
+func dedupeLangFilter(filter LangFilter) LangFilter {
+	deduped := make(LangFilter)
+	for lang, versions := range filter {
+		if versions == nil {
+			deduped[lang] = nil
 			continue
 		}
-		langDir := filepath.Join(dir, f.Name())
-		specPath := filepath.Join(langDir, SpecFilename)
-		data, err := os.ReadFile(specPath)
-		if err != nil {
-			if errors.Is(err, fs.ErrNotExist) {
+		versionSet := make(map[string]struct{})
+		for _, v := range versions {
+			if v == "" {
 				continue
 			}
-			errs = append(errs, fmt.Errorf("read %s: %w", specPath, err))
+			versionSet[v] = struct{}{}
+		}
+		if len(versionSet) == 0 {
+			deduped[lang] = nil
 			continue
 		}
-		var spec ImageSpec
-		dec := yaml.NewDecoder(bytes.NewReader(data))
-		dec.KnownFields(true)
-		if err := dec.Decode(&spec); err != nil {
-			errs = append(errs, fmt.Errorf("parse %s: %w", specPath, err))
+		deduped[lang] = slices.Sorted(maps.Keys(versionSet))
+	}
+	return deduped
+}
+
+func LoadFiltered(dir string, filter LangFilter) ([]Entry, error) {
+	var entries []Entry
+	var errs []error
+
+	if filter == nil {
+		files, err := os.ReadDir(dir)
+		if err != nil {
+			return nil, fmt.Errorf("read dir %s: %w", dir, err)
+		}
+		for _, f := range files {
+			if !f.IsDir() {
+				continue
+			}
+			langDir := filepath.Join(dir, f.Name())
+			specPath := filepath.Join(langDir, SpecFilename)
+			spec, err := loadImageSpec(specPath)
+			if err != nil {
+				if errors.Is(err, fs.ErrNotExist) {
+					continue
+				}
+				errs = append(errs, err)
+				continue
+			}
+			entries = append(entries, Entry{Dir: langDir, Spec: spec})
+		}
+		if len(errs) > 0 {
+			return nil, errors.Join(errs...)
+		}
+		return entries, nil
+	}
+
+	for lang, versions := range filter {
+		langDir := filepath.Join(dir, lang)
+		specPath := filepath.Join(langDir, SpecFilename)
+		spec, err := loadImageSpec(specPath)
+		if err != nil {
+			if errors.Is(err, fs.ErrNotExist) {
+				errs = append(errs, fmt.Errorf("language %s: spec file not found", lang))
+				continue
+			}
+			errs = append(errs, err)
 			continue
 		}
-		if err := validateSpec(spec); err != nil {
-			errs = append(errs, fmt.Errorf("validate %s: %w", specPath, err))
+		if len(versions) > 0 {
+			newVersions, missing := FilterVersions(spec.Versions, versions)
+			if len(missing) > 0 {
+				available := slices.Sorted(maps.Keys(spec.Versions))
+				errs = append(errs, FormatMissingVersionsError(lang, missing, available))
+				continue
+			}
+			spec.Versions = newVersions
 		}
 		entries = append(entries, Entry{Dir: langDir, Spec: spec})
+
 	}
 	if len(errs) > 0 {
 		return nil, errors.Join(errs...)
 	}
 	return entries, nil
+}
+
+func Load(dir string) ([]Entry, error) {
+	return LoadFiltered(dir, nil)
+}
+
+func FilterVersions[V any](versions map[string]V, requested []string) (kept map[string]V, missing []string) {
+	kept = make(map[string]V, len(requested))
+	for _, v := range requested {
+		if ver, ok := versions[v]; ok {
+			kept[v] = ver
+		} else {
+			missing = append(missing, v)
+		}
+	}
+	return kept, missing
+}
+
+func FormatMissingVersionsError(lang string, missing, available []string) error {
+	maxNamed := 10
+	named, suffix := missing, ""
+	if len(missing) > maxNamed {
+		named = missing[:maxNamed]
+		suffix = fmt.Sprintf(" ...and %d more", len(missing)-maxNamed)
+	}
+	return fmt.Errorf("unknown version(s) for %s: %s%s (available: %s)",
+		lang, strings.Join(named, ", "), suffix, strings.Join(available, ", "))
+}
+
+func loadImageSpec(path string) (ImageSpec, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return ImageSpec{}, fmt.Errorf("read %s: %w", path, err)
+	}
+	var spec ImageSpec
+	dec := yaml.NewDecoder(bytes.NewReader(data))
+	dec.KnownFields(true)
+	if err := dec.Decode(&spec); err != nil {
+		return ImageSpec{}, fmt.Errorf("parse %s: %w", path, err)
+	}
+	if err := validateSpec(spec); err != nil {
+		return ImageSpec{}, fmt.Errorf("validate %s: %w", path, err)
+	}
+	return spec, nil
 }
 
 func LoadLockfile(path string) (Lockfile, error) {
