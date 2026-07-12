@@ -2,9 +2,11 @@ package langtest_test
 
 import (
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
+	"github.com/tpsawant027/runboxd/internal/imagespec"
 	"github.com/tpsawant027/runboxd/internal/langtest"
 )
 
@@ -182,4 +184,90 @@ func TestLoad(t *testing.T) {
 			t.Fatalf("expected glob error but got: %v", err)
 		}
 	})
+
+	t.Run("multiple errors", func(t *testing.T) {
+		_, err := langtest.Load("testdata/multi_err/*.yml")
+		wantErrContains := []string{"missing required field 'name'", "memory_bytes must be > 0"}
+		if err == nil {
+			t.Fatalf("expected error but got none")
+		}
+		for _, substr := range wantErrContains {
+			if !strings.Contains(err.Error(), substr) {
+				t.Errorf("expected error to contain %q but got: %v", substr, err)
+			}
+		}
+	})
+}
+
+func TestLoadFiltered(t *testing.T) {
+	cases := []struct {
+		name             string
+		dir              string
+		filter           imagespec.LangFilter
+		wantErrContains  []string
+		wantFixtureLangs []string // sorted list of expected languages in the loaded fixtures
+	}{
+		{
+			name:             "nil filter",
+			dir:              "testdata/filter/valid",
+			filter:           nil,
+			wantFixtureLangs: []string{"go", "python"},
+		},
+		{
+			name:             "filter with one language",
+			dir:              "testdata/filter/valid/",
+			filter:           imagespec.LangFilter{"python": nil},
+			wantFixtureLangs: []string{"python"},
+		},
+		{
+			name:             "filter with multiple languages",
+			dir:              "testdata/filter/valid/",
+			filter:           imagespec.LangFilter{"go": nil, "python": nil},
+			wantFixtureLangs: []string{"go", "python"},
+		},
+		{
+			name:            "errors for invalid fixtures",
+			dir:             "testdata/filter/invalid/",
+			filter:          imagespec.LangFilter{"go": nil, "python": nil},
+			wantErrContains: []string{"missing required field 'name'", "memory_bytes must be > 0"},
+		},
+		{
+			name:   "filter with unknown language",
+			dir:    "testdata/filter/valid/",
+			filter: imagespec.LangFilter{"py": nil},
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			fixtures, err := langtest.LoadFiltered(tc.dir, tc.filter)
+			if len(tc.wantErrContains) > 0 && err == nil {
+				t.Fatalf("expected error but got none")
+			}
+			if len(tc.wantErrContains) == 0 && err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if len(tc.wantErrContains) > 0 {
+				errStr := err.Error()
+				for _, substr := range tc.wantErrContains {
+					if !strings.Contains(errStr, substr) {
+						t.Errorf("expected error to contain %q but got: %v", substr, err)
+					}
+				}
+			}
+			if len(tc.wantFixtureLangs) != len(fixtures) {
+				t.Fatalf("expected %d fixtures but got %d", len(tc.wantFixtureLangs), len(fixtures))
+			}
+			if len(tc.wantFixtureLangs) > 0 {
+				gotLangs := make([]string, len(fixtures))
+				for i, f := range fixtures {
+					gotLangs[i] = f.Language
+				}
+				slices.Sort(gotLangs)
+				if !slices.Equal(gotLangs, tc.wantFixtureLangs) {
+					t.Errorf("expected fixture languages %v but got %v", tc.wantFixtureLangs, gotLangs)
+				}
+			}
+		})
+	}
 }

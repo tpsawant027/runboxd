@@ -1,0 +1,7 @@
+language: go
+
+# source set (so it reaches the oom switch), memory_bytes 0 -> "memory_bytes must be > 0".
+conformance:
+  oom:
+    source: "x"
+    memory_bytes: 0

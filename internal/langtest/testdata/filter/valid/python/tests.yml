@@ -1,0 +1,42 @@
+language: python
+
+conformance:
+  oom:
+    source: |
+      import os
+      os.urandom(2 << 30)   # allocate ~2 GiB of real bytes, far above the cap
+    memory_bytes: 33554432 # 32 MiB cap
+  timeout:
+    source: |
+      import time
+      time.sleep(60)
+    timeout_ms: 1000
+  fs_escape:
+    source: |
+      open("/oops.txt", "w")   # write outside the workspace, uncaught
+    want_stderr_contains: "Read-only file system"
+
+smoke:
+  - name: hello
+    source: |
+      print("hi")
+    want_stdout: "hi\n"
+  - name: stdin_echo
+    source: |
+      import sys
+      sys.stdout.write(sys.stdin.read())
+    stdin: "abc\n"
+    want_stdout: "abc\n"
+    want_exit_code: 0
+  - name: reads_workspace_file
+    source: |
+      print(open("data.txt").read())
+    files:
+      - name: data.txt
+        content: "hello\n"
+    want_stdout_contains: "hello"
+  - name: deliberate_error_surfaces
+    source: |
+      raise ValueError("boom")
+    want_status: runtime_error
+    want_stderr_contains: "boom"

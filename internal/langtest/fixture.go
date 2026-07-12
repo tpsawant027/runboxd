@@ -2,10 +2,13 @@ package langtest
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 
+	"github.com/tpsawant027/runboxd/internal/imagespec"
 	"github.com/tpsawant027/runboxd/internal/sandbox"
 	"go.yaml.in/yaml/v4"
 )
@@ -66,18 +69,47 @@ var SmokeStatus = map[string]sandbox.Status{
 	"compile_error": sandbox.StatusCompileError,
 }
 
+func LoadFiltered(dir string, filter imagespec.LangFilter) ([]Fixture, error) {
+	if filter == nil {
+		return Load(filepath.Join(dir, "*", FixtureFilename))
+	}
+	var fixtures []Fixture
+	var errs []error
+	for lang := range filter {
+		path := filepath.Join(dir, lang, FixtureFilename)
+		f, err := LoadFixture(path)
+		if err != nil {
+			if errors.Is(err, fs.ErrNotExist) {
+				continue
+			}
+			errs = append(errs, fmt.Errorf("failed to load fixture %s: %w", path, err))
+			continue
+		}
+		fixtures = append(fixtures, f)
+	}
+	if len(errs) > 0 {
+		return nil, errors.Join(errs...)
+	}
+	return fixtures, nil
+}
+
 func Load(glob string) ([]Fixture, error) {
 	matches, err := filepath.Glob(glob)
 	if err != nil {
 		return nil, fmt.Errorf("failed to glob fixtures: %w", err)
 	}
 	var fixtures []Fixture
+	var errs []error
 	for _, match := range matches {
 		f, err := LoadFixture(match)
 		if err != nil {
-			return nil, fmt.Errorf("failed to load fixture %s: %w", match, err)
+			errs = append(errs, fmt.Errorf("failed to load fixture %s: %w", match, err))
+			continue
 		}
 		fixtures = append(fixtures, f)
+	}
+	if len(errs) > 0 {
+		return nil, errors.Join(errs...)
 	}
 	return fixtures, nil
 }
