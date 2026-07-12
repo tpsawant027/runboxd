@@ -49,10 +49,10 @@ func mustGetFlagBool(cmd *cobra.Command, name string) bool {
 	return v
 }
 
-func loadLangFilter(cmd *cobra.Command) (imagespec.LangFilter, error) {
+func loadLangFilter(cmd *cobra.Command, ignoreVersions bool) (imagespec.LangFilter, error) {
 	raw := mustGetFlagStringArray(cmd, "lang")
 	if len(raw) == 0 {
 		return nil, nil
 	}
-	return imagespec.ParseLangFilter(raw)
+	return imagespec.ParseLangFilter(raw, imagespec.ParseLangFilterOptions{IgnoreVersions: ignoreVersions})
 }

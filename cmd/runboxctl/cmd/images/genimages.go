@@ -57,7 +57,7 @@ func runGenImages(cmd *cobra.Command, _ []string) error {
 	lockfilePath := mustGetFlagString(cmd, "lockfile")
 	registryOut := mustGetFlagString(cmd, "registry")
 
-	parsedLangFilter, err := loadLangFilter(cmd)
+	parsedLangFilter, err := loadLangFilter(cmd, false)
 	if err != nil {
 		return fmt.Errorf("failed to parse language filter: %w", err)
 	}

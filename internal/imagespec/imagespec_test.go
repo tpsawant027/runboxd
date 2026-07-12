@@ -238,6 +238,7 @@ func TestParseLangFilter(t *testing.T) {
 	cases := []struct {
 		name            string
 		raw             []string
+		opts            imagespec.ParseLangFilterOptions
 		want            imagespec.LangFilter
 		wantErrContains string
 	}{
@@ -331,11 +332,35 @@ func TestParseLangFilter(t *testing.T) {
 			raw:  []string{"python:3.12" + strings.Repeat("x", 89)},
 			want: imagespec.LangFilter{"python": []string{"3.12" + strings.Repeat("x", 89)}},
 		},
+		{
+			name: "ignore versions, single language with version",
+			raw:  []string{"python:3.12"},
+			opts: imagespec.ParseLangFilterOptions{IgnoreVersions: true},
+			want: imagespec.LangFilter{"python": nil},
+		},
+		{
+			name: "ignore versions, duplicate entries for same language collapse",
+			raw:  []string{"python:3.12", "python:3.11"},
+			opts: imagespec.ParseLangFilterOptions{IgnoreVersions: true},
+			want: imagespec.LangFilter{"python": nil},
+		},
+		{
+			name: "ignore versions, multiple languages",
+			raw:  []string{"python:3.12", "go:1.26"},
+			opts: imagespec.ParseLangFilterOptions{IgnoreVersions: true},
+			want: imagespec.LangFilter{"python": nil, "go": nil},
+		},
+		{
+			name:            "ignore versions, empty language name still errors",
+			raw:             []string{":3.12"},
+			opts:            imagespec.ParseLangFilterOptions{IgnoreVersions: true},
+			wantErrContains: "language name is empty",
+		},
 	}
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			got, err := imagespec.ParseLangFilter(tc.raw)
+			got, err := imagespec.ParseLangFilter(tc.raw, tc.opts)
 			if (tc.wantErrContains == "" && err != nil) || (tc.wantErrContains != "" && err == nil) {
 				t.Fatalf("unexpected error: %v", err)
 			}

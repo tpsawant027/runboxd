@@ -32,7 +32,7 @@ func runBuildImages(cmd *cobra.Command, _ []string) error {
 	registryPath := mustGetFlagString(cmd, "registry")
 	noCache := mustGetFlagBool(cmd, "no-cache")
 
-	parsedLangFilter, err := loadLangFilter(cmd)
+	parsedLangFilter, err := loadLangFilter(cmd, false)
 	if err != nil {
 		return fmt.Errorf("failed to parse language filter: %w", err)
 	}

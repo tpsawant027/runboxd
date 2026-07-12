@@ -68,9 +68,13 @@ type Lockfile map[string]map[string]string // lang -> version -> digest
 
 type LangFilter map[string][]string // language -> requested versions; nil/empty = all versions
 
+type ParseLangFilterOptions struct {
+	IgnoreVersions bool
+}
+
 const maxRawFilterLength = 100
 
-func ParseLangFilter(raw []string) (LangFilter, error) {
+func ParseLangFilter(raw []string, opts ParseLangFilterOptions) (LangFilter, error) {
 	filter := make(LangFilter)
 	for _, r := range raw {
 		if len(r) > maxRawFilterLength {
@@ -79,6 +83,10 @@ func ParseLangFilter(raw []string) (LangFilter, error) {
 		lang, versionStr, _ := strings.Cut(r, ":")
 		if lang == "" {
 			return nil, fmt.Errorf("filter %q: language name is empty", r)
+		}
+		if opts.IgnoreVersions {
+			filter[lang] = nil
+			continue
 		}
 		currVersions, ok := filter[lang]
 		switch {
@@ -92,7 +100,9 @@ func ParseLangFilter(raw []string) (LangFilter, error) {
 			filter[lang] = strings.Split(versionStr, ",")
 		}
 	}
-	filter = dedupeLangFilter(filter)
+	if !opts.IgnoreVersions {
+		filter = dedupeLangFilter(filter)
+	}
 	return filter, nil
 }
 

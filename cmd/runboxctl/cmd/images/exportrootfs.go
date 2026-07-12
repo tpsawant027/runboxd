@@ -33,7 +33,7 @@ func runExportRootFS(cmd *cobra.Command, _ []string) error {
 	imageDir := mustGetFlagString(cmd, "image-dir")
 	force := mustGetFlagBool(cmd, "force")
 
-	parsedLangFilter, err := loadLangFilter(cmd)
+	parsedLangFilter, err := loadLangFilter(cmd, false)
 	if err != nil {
 		return fmt.Errorf("failed to parse language filter: %w", err)
 	}

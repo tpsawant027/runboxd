@@ -25,7 +25,7 @@ func newListImagesCmd() *cobra.Command {
 func runListImages(cmd *cobra.Command, _ []string) error {
 	imageDir := mustGetFlagString(cmd, "image-dir")
 
-	parsedLangFilter, err := loadLangFilter(cmd)
+	parsedLangFilter, err := loadLangFilter(cmd, false)
 	if err != nil {
 		return fmt.Errorf("failed to parse language filter: %w", err)
 	}
