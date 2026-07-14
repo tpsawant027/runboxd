@@ -2,7 +2,6 @@ name: go
 type: compiled
 filename: main.go
 default_version: "1.26"
-exec_cmd: go
 env:
   GOPATH: "/go"
   GOCACHE: "/opt/gocache"
@@ -27,12 +26,5 @@ versions:
   "1.26":
     base_image: golang:1.26-alpine
     build_cmd:
-      [
-        "go",
-        "build",
-        "-o",
-        "/build/main",
-        "-ldflags=-s -w",
-        "/sandbox/main.go",
-      ]
+      ["go", "build", "-o", "/build/main", "-ldflags=-s -w", "/sandbox/main.go"]
     run_cmd: ["/build/main"]

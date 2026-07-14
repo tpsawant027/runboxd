@@ -2,7 +2,6 @@ name: nodejs
 type: interpreted
 filename: main.js
 default_version: "26"
-exec_cmd: node
 env:
   PATH: "/usr/local/bin:/usr/bin:/bin"
 limits:

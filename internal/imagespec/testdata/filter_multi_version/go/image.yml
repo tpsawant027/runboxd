@@ -2,7 +2,6 @@ name: go
 type: compiled
 filename: main.go
 default_version: "1.26"
-exec_cmd: go
 env:
   GOPATH: "/go"
   GOCACHE: "/opt/gocache"

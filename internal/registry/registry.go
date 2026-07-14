@@ -25,7 +25,6 @@ type Language struct {
 	Limits         imagespec.Limits        `yaml:"limits"`
 	CompileLimits  imagespec.CompileLimits `yaml:"compile_limits,omitempty"`
 	Versions       map[string]Version      `yaml:"versions"`
-	Artifact       Artifact                `yaml:"artifact"`
 }
 
 type Version struct {
@@ -33,11 +32,6 @@ type Version struct {
 	Image    string   `yaml:"image"`
 	RunCmd   []string `yaml:"run_cmd"`
 	BuildCmd []string `yaml:"build_cmd"`
-}
-
-type Artifact struct {
-	Name             string `yaml:"name"`
-	ExecutionCommand string `yaml:"execution_command"`
 }
 
 func (r *Registry) Filter(filter imagespec.LangFilter) error {

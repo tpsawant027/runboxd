@@ -108,10 +108,6 @@ func runGenImages(cmd *cobra.Command, _ []string) error {
 			continue
 		}
 
-		if entry.Spec.ExecCmd == "" {
-			return fmt.Errorf("%s: exec_cmd is required in the image spec", entry.Spec.Name)
-		}
-
 		newLang := registry.Language{
 			Name:           entry.Spec.Name,
 			Type:           entry.Spec.Type,
@@ -121,10 +117,6 @@ func runGenImages(cmd *cobra.Command, _ []string) error {
 			Limits:         entry.Spec.Limits,
 			CompileLimits:  entry.Spec.CompileLimits,
 			Versions:       make(map[string]registry.Version),
-			Artifact: registry.Artifact{
-				Name:             entry.Spec.Filename,
-				ExecutionCommand: entry.Spec.ExecCmd,
-			},
 		}
 		// Preserve versions of this language that this run isn't touching
 		if existingLang, ok := languageRegistry.Languages[entry.Spec.Name]; ok {

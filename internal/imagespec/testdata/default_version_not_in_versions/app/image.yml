@@ -2,7 +2,6 @@ name: python
 type: interpreted
 filename: main.py
 default_version: "9.9"
-exec_cmd: python3
 versions:
   "3.12":
     base_image: python:3.12-alpine

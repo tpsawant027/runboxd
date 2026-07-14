@@ -25,7 +25,6 @@ type ImageSpec struct {
 	Type           string             `yaml:"type"`
 	Filename       string             `yaml:"filename"`
 	DefaultVersion string             `yaml:"default_version"`
-	ExecCmd        string             `yaml:"exec_cmd"`
 	Env            map[string]string  `yaml:"env,omitempty"`
 	Limits         Limits             `yaml:"limits"`
 	CompileLimits  CompileLimits      `yaml:"compile_limits,omitempty"`
@@ -262,9 +261,6 @@ func validateSpec(spec ImageSpec) error {
 	}
 	if spec.DefaultVersion == "" {
 		return errors.New("default_version is required")
-	}
-	if spec.ExecCmd == "" {
-		return errors.New("exec_cmd is required")
 	}
 	if len(spec.Versions) == 0 {
 		return errors.New("at least one version is required")

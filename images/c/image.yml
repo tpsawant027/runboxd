@@ -2,7 +2,6 @@ name: c
 type: compiled
 filename: main.c
 default_version: "15"
-exec_cmd: gcc # metadata only
 env:
   PATH: "/usr/local/bin:/usr/bin:/bin"
 limits:

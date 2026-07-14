@@ -2,7 +2,6 @@ name: python
 type: interpreted
 filename: main.py
 default_version: "3.12"
-exec_cmd: python3
 limits:
   max_pid: 4          # typo: should be max_pids
 versions:

@@ -2,7 +2,6 @@ name: java
 type: compiled
 filename: Main.java
 default_version: "21"
-exec_cmd: java # metadata only
 env:
   PATH: "/opt/java/openjdk/bin:/usr/local/bin:/usr/bin:/bin"
 limits:

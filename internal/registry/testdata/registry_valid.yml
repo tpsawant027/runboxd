@@ -15,9 +15,6 @@ languages:
         name: "3.12"
         image: runboxd-python:3.12
         run_cmd: ["python3", "/sandbox/main.py"]
-    artifact:
-      name: main.py
-      execution_command: python3
   go:
     name: go
     type: compiled
@@ -36,6 +33,3 @@ languages:
         image: runboxd-go:1.26
         run_cmd: ["/build/main"]
         build_cmd: ["go", "build", "-o", "/build/main", "/sandbox/main.go"]
-    artifact:
-      name: main.go
-      execution_command: go

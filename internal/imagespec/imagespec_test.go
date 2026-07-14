@@ -56,12 +56,6 @@ func TestLoadImageSpec(t *testing.T) {
 			wantErrContains: "default_version is required",
 		},
 		{
-			name:            "missing exec cmd",
-			dir:             "testdata/missing_exec_cmd",
-			wantErr:         true,
-			wantErrContains: "exec_cmd is required",
-		},
-		{
 			name:            "missing filename",
 			dir:             "testdata/missing_filename",
 			wantErr:         true,
@@ -171,8 +165,8 @@ func TestLoadDecodesFields(t *testing.T) {
 	if !ok {
 		t.Fatal("missing cc entry")
 	}
-	if cc.Type != "compiled" || cc.Filename != "main.c" || cc.ExecCmd != "gcc" {
-		t.Errorf("cc scalars: got type=%q filename=%q exec_cmd=%q", cc.Type, cc.Filename, cc.ExecCmd)
+	if cc.Type != "compiled" || cc.Filename != "main.c" {
+		t.Errorf("cc scalars: got type=%q filename=%q", cc.Type, cc.Filename)
 	}
 	if cc.CompileLimits.MemoryMiB != 512 || cc.CompileLimits.TimeoutSeconds != 10 {
 		t.Errorf("cc compile_limits: got %+v", cc.CompileLimits)
