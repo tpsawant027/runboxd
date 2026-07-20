@@ -30,8 +30,8 @@ type Language struct {
 type Version struct {
 	Name     string   `yaml:"name"`
 	Image    string   `yaml:"image"`
-	RunCmd   []string `yaml:"run_cmd"`
-	BuildCmd []string `yaml:"build_cmd"`
+	RunCmd   []string `yaml:"run_cmd,flow"`
+	BuildCmd []string `yaml:"build_cmd,flow"`
 }
 
 func (r *Registry) Filter(filter imagespec.LangFilter) error {
